@@ -59,16 +59,30 @@ export class TerrainSurface {
   }
 
   elevationAt(x: number, y: number): number | undefined {
-    const tile = this.tiles.find(({ bounds }) =>
-      x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY,
-    )
-    if (!tile) return undefined
-    const cell = getCell(tile, cellIndex(x, tile.xs, tile.spacing), cellIndex(y, tile.ys, tile.spacing))
+    const cell = this.cellAt(x, y)
+    if (!cell) return undefined
     const fx = (x - cell.x) / cell.width
     const fy = (y - cell.y) / cell.height
     return fx >= fy
       ? cell.nw + (cell.ne - cell.nw) * fx + (cell.se - cell.ne) * fy
       : cell.nw + (cell.se - cell.sw) * fx + (cell.sw - cell.nw) * fy
+  }
+
+  slopeAt(x: number, y: number): number | undefined {
+    const cell = this.cellAt(x, y)
+    if (!cell) return undefined
+    const upper = (x - cell.x) / cell.width >= (y - cell.y) / cell.height
+    const riseX = (upper ? cell.ne - cell.nw : cell.se - cell.sw) / cell.width
+    const riseY = (upper ? cell.se - cell.ne : cell.sw - cell.nw) / cell.height
+    return Math.atan(Math.hypot(riseX, riseY)) * 180 / Math.PI
+  }
+
+  private cellAt(x: number, y: number): ReturnType<typeof getCell> | undefined {
+    const tile = this.tiles.find(({ bounds }) =>
+      x >= bounds.minX && x <= bounds.maxX && y >= bounds.minY && y <= bounds.maxY,
+    )
+    if (!tile) return undefined
+    return getCell(tile, cellIndex(x, tile.xs, tile.spacing), cellIndex(y, tile.ys, tile.spacing))
   }
 
   pick(camera: CameraController, screen: Point): Point | null {

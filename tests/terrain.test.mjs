@@ -159,7 +159,7 @@ test('feathered coastline edits preserve a continuous edge and persist a surface
   assert.deepEqual(reloaded.sample(x, y), terrain.sample(x, y));
 });
 
-test('the application opens v1 saves in v2 without destroying v1 metadata or patches', () => {
+test('the application opens v1 saves in the current version without destroying v1 metadata or patches', () => {
   const storage = memoryStorage();
   const v1 = { ...createWorldMetadata('verdant-reach'), generatorVersion: 1 };
   const legacyKey = terrainStorageKey(v1);

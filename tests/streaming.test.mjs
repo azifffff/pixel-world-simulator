@@ -107,6 +107,27 @@ test('physical chunk seams share vertex coordinates and heights regardless of lo
   }
 });
 
+test('a large zoom jump promotes a complete intermediate mesh ahead of the final detail', () => {
+  const manager = new ChunkManager(fakeTerrain());
+  const viewport = view(4_000, 5_000, 1_640, 1_200, 10);
+  settle(manager, { ...viewport, pixelsPerMeter: STREAM_SETTINGS.pixelsPerSample / 40_960 });
+
+  let preview;
+  for (let i = 0; i < 10; i++) {
+    const frame = manager.update(viewport, { maxTiles: 1, maxMilliseconds: 10_000 });
+    assert.ok(frame.tiles.length > 0);
+    if (frame.tiles[0].spacing === 40) {
+      preview = frame;
+      break;
+    }
+  }
+  assert.ok(preview?.loading);
+  assert.equal(preview.tiles.length, 4);
+  const final = settle(manager, viewport);
+  assert.equal(final.lod, 4);
+  assert.ok(final.tiles.every(({ spacing }) => spacing === 10));
+});
+
 test('a detailed view has complete edge coverage, culls rejected tiles and refreshes edited data', () => {
   const side = CHUNK_SIZE_METERS * 10 + 47;
   const terrain = fakeTerrain(side);

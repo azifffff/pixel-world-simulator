@@ -1,10 +1,9 @@
 import { MAX_DISPLAY_ELEVATION, WORLD_SIDE_METERS } from '../world/coordinates.ts';
 import { validateAetherConfig, type AetherConfig } from './aether-config.ts';
 
-export const GENERATOR_VERSION = 2;
+export const GENERATOR_VERSION = 3;
 export const DEFAULT_SEED = 'aetheria';
 export const WORLD_METADATA_KEY = 'pixel-world:metadata';
-const LEGACY_METADATA_KEY = 'pixel-world:metadata:v1';
 export const MIN_ELEVATION = -7_000;
 export const MAX_ELEVATION = MAX_DISPLAY_ELEVATION;
 
@@ -23,6 +22,12 @@ export interface WorldMetadata {
 }
 
 export type WorldStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+type LegacyVersion = 1 | 2;
+
+export type ActiveWorld =
+  | { metadata: WorldMetadata; migrated: false; previousVersion?: never }
+  | { metadata: WorldMetadata; migrated: true; previousVersion: LegacyVersion };
 
 const DEFAULT_PARAMETERS: TerrainParameters = Object.freeze({
   seaLevel: 0.49,
@@ -76,25 +81,62 @@ export function loadWorldMetadata(storage?: WorldStorage): WorldMetadata {
   return stored == null ? createWorldMetadata() : validateWorldMetadata(JSON.parse(stored));
 }
 
-export function loadActiveWorld(storage?: WorldStorage): { metadata: WorldMetadata; migrated: boolean } {
-  const stored = storage?.getItem(WORLD_METADATA_KEY);
+function isLegacyVersion(version: unknown): version is LegacyVersion {
+  return version === 1 || version === 2;
+}
+
+function archiveLegacyMetadata(storage: WorldStorage, version: LegacyVersion, stored: string): void {
+  const baseKey = `${WORLD_METADATA_KEY}:v${version}`;
+  // Keep distinct saves of the same version if the browser was previously downgraded or restored.
+  for (let index = 1; ; index++) {
+    const key = index === 1 ? baseKey : `${baseKey}:${index}`;
+    const archived = storage.getItem(key);
+    if (archived === stored) return;
+    if (archived == null) {
+      storage.setItem(key, stored);
+      return;
+    }
+  }
+}
+
+export function loadActiveWorld(storage?: WorldStorage): ActiveWorld {
+  if (!storage) return { metadata: createWorldMetadata(), migrated: false };
+  const stored = storage.getItem(WORLD_METADATA_KEY);
   if (stored == null) return { metadata: createWorldMetadata(), migrated: false };
   const value = JSON.parse(stored) as Partial<WorldMetadata> | null;
-  if (value?.generatorVersion !== 1) return { metadata: validateWorldMetadata(value), migrated: false };
+  const previousVersion = value?.generatorVersion;
+  if (!isLegacyVersion(previousVersion)) return { metadata: validateWorldMetadata(value), migrated: false };
 
+  const oldSeed = value?.seed;
+  const { seaLevel, reliefMultiplier, riverWidthMeters } = value?.terrain ?? {};
   const metadata = validateWorldMetadata({
-    seed: value.seed === 'verdant-reach' ? DEFAULT_SEED : value.seed,
+    seed: typeof oldSeed === 'string' && oldSeed.trim() && oldSeed.length <= 128 &&
+      (previousVersion !== 1 || oldSeed !== 'verdant-reach') ? oldSeed : DEFAULT_SEED,
     generatorVersion: GENERATOR_VERSION,
-    worldSizeMeters: value.worldSizeMeters,
-    terrain: value.terrain,
+    worldSizeMeters: WORLD_SIDE_METERS,
+    terrain: {
+      seaLevel: inRange(seaLevel, 0.25, 0.75) ? seaLevel : DEFAULT_PARAMETERS.seaLevel,
+      reliefMultiplier: inRange(reliefMultiplier, 0.25, 2) ? reliefMultiplier : DEFAULT_PARAMETERS.reliefMultiplier,
+      riverWidthMeters: inRange(riverWidthMeters, 0, 5_000) ? riverWidthMeters : DEFAULT_PARAMETERS.riverWidthMeters,
+    },
   });
-  if (storage?.getItem(LEGACY_METADATA_KEY) == null) storage?.setItem(LEGACY_METADATA_KEY, stored);
-  return { metadata, migrated: true };
+  archiveLegacyMetadata(storage, previousVersion, stored);
+  return { metadata, migrated: true, previousVersion };
 }
 
 export function saveWorldMetadata(metadata: WorldMetadata, storage?: WorldStorage): void {
   const validated = validateWorldMetadata(metadata);
-  storage?.setItem(WORLD_METADATA_KEY, JSON.stringify(validated));
+  if (!storage) return;
+
+  const stored = storage.getItem(WORLD_METADATA_KEY);
+  if (stored != null) {
+    const previousVersion = (JSON.parse(stored) as Partial<WorldMetadata> | null)?.generatorVersion;
+    if (isLegacyVersion(previousVersion)) archiveLegacyMetadata(storage, previousVersion, stored);
+    else if (previousVersion !== GENERATOR_VERSION) {
+      throw new Error(`Unsupported terrain generator version: ${String(previousVersion)}`);
+    }
+  }
+  storage.setItem(WORLD_METADATA_KEY, JSON.stringify(validated));
 }
 
 export function terrainStorageKey(metadata: WorldMetadata): string {

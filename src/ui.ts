@@ -63,7 +63,7 @@ export function createInterface(root: HTMLElement) {
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
         <div>
-          <strong class="brand-title">Aetheria 2.0</strong>
+          <strong class="brand-title">Aetheria 2.1</strong>
           <span class="brand-project">Bản đồ địa hình</span>
         </div>
       </div>
