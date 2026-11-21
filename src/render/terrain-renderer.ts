@@ -1,4 +1,9 @@
+import { RIVER_LINE_SPACING } from './river-overlay.ts';
 import { Container, Mesh, MeshGeometry } from 'pixi.js';
+import {
+  FOREST_MATERIAL, isBathymetryMaterial, isWaterMaterial, materialForBiome, RIVER_MATERIAL,
+  NEUTRAL_LAND_MATERIAL, NEUTRAL_SEA_MATERIAL,
+} from '../terrain/aether-classification.ts';
 import { projectIsometric, surfaceElevation, type Point } from '../world/coordinates.ts';
 import { BIOMES, type TerrainTile } from '../world/streaming.ts';
 import { createTerrainPalette, decorationTexel, PALETTE_HEIGHT, PALETTE_WIDTH, terrainTexel } from './terrain-palette.ts';
@@ -14,6 +19,15 @@ interface RenderTile {
   origin: Point;
   mesh: Mesh;
 }
+
+export interface TerrainRenderOptions {
+  readonly colors: boolean;
+  readonly shading: boolean;
+  readonly water: boolean;
+  readonly classification: boolean;
+}
+
+const DEFAULT_OPTIONS: TerrainRenderOptions = { colors: true, shading: true, water: true, classification: false };
 
 const TREE_GRID_METERS = 28;
 const TREE_PIXEL_METERS = 2.15;
@@ -151,16 +165,17 @@ function appendForest(
   }
 }
 
-function createTileGeometry(tile: TerrainTile): MeshGeometry {
+function createTileGeometry(tile: TerrainTile, options: TerrainRenderOptions): MeshGeometry {
   const { xs, ys, spacing } = tile;
   const rows = ys.length - 1;
   const columns = xs.length - 1;
   const surface = tile.elevations.map(surfaceElevation);
   const vertices = projectedVertices(tile, surface);
-  const trees = tile.lod === 4 && spacing <= 20;
+  const trees = tile.lod === 4 && spacing <= 20 && options.colors && !options.classification;
   const treeColumns = Math.ceil(xs[columns] / TREE_GRID_METERS) - Math.floor(xs[0] / TREE_GRID_METERS);
   const treeRows = Math.ceil(ys[rows] / TREE_GRID_METERS) - Math.floor(ys[0] / TREE_GRID_METERS);
   const geometry = new TileGeometry(rows * columns, trees ? treeColumns * treeRows : 0);
+  const materials = options.water ? tile.materials : tile.dryMaterials;
 
   for (let diagonal = 0; diagonal < rows + columns - 1; diagonal++) {
     const end = Math.min(rows - 1, diagonal);
@@ -174,19 +189,34 @@ function createTileGeometry(tile: TerrainTile): MeshGeometry {
       const biome = BIOMES[tile.biomes[face]];
       const height = tile.surfaceElevations[face];
       const moisture = tile.moistures[face] / 255;
+      const sampled = materials?.[face] ?? materialForBiome(biome);
+      const original = spacing >= RIVER_LINE_SPACING && sampled === RIVER_MATERIAL
+        ? tile.dryMaterials?.[face] ?? sampled
+        : sampled;
+      const water = isWaterMaterial(original);
+      const material = options.colors ? original : water ? NEUTRAL_SEA_MATERIAL : NEUTRAL_LAND_MATERIAL;
       const width = xs[x + 1] - xs[x];
       const depth = ys[y + 1] - ys[y];
-      const noise = pixelNoise(Math.floor(xs[x] / spacing), Math.floor(ys[y] / spacing)) - 0.5;
-      const grain = noise * (tile.lod >= 3 ? 0.085 : 0.044);
-      const lightNE = terrainLight((surface[ne] - surface[nw]) / width, (surface[se] - surface[ne]) / depth, spacing);
-      const lightSW = terrainLight((surface[se] - surface[sw]) / width, (surface[sw] - surface[nw]) / depth, spacing);
-      const light = biome === 'ocean' || biome === 'river' ? 0.98 : (lightNE + lightSW) * 0.5;
-
-      // A small facet response reveals local slopes without adding visible lines between cells.
-      const facet = biome === 'ocean' || biome === 'river' ? 0 : (lightNE - lightSW) * 0.22;
-      geometry.triangle(vertices, nw, ne, se, terrainTexel(biome, height, moisture, light + grain + facet));
-      geometry.triangle(vertices, nw, se, sw, terrainTexel(biome, height, moisture, light + grain - facet));
-      if (trees && biome === 'forest') appendForest(geometry, tile, surface, x, y, moisture);
+      let light = 1;
+      let facet = 0;
+      if (options.shading) {
+        const strength = options.classification ? 0.10 : 1;
+        if (water) {
+          // Color bathymetry without displacing the ocean surface.
+          light -= strength * Math.min(1, Math.max(0, -height / 6_500)) * 0.16;
+        } else {
+          const lightNE = terrainLight((surface[ne] - surface[nw]) / width, (surface[se] - surface[ne]) / depth, spacing);
+          const lightSW = terrainLight((surface[se] - surface[sw]) / width, (surface[sw] - surface[nw]) / depth, spacing);
+          light += strength * ((lightNE + lightSW) * 0.5 - 1);
+          facet = strength * (lightNE - lightSW) * 0.22;
+        }
+        const grain = pixelNoise(Math.floor(xs[x] / spacing), Math.floor(ys[y] / spacing)) - 0.5;
+        light += grain * strength * (tile.lod >= 3 ? 0.075 : 0.027);
+      }
+      const bathymetry = !options.classification && isBathymetryMaterial(material) ? height : undefined;
+      geometry.triangle(vertices, nw, ne, se, terrainTexel(material, light + facet, bathymetry));
+      geometry.triangle(vertices, nw, se, sw, terrainTexel(material, light - facet, bathymetry));
+      if (trees && original === FOREST_MATERIAL) appendForest(geometry, tile, surface, x, y, moisture);
     }
   }
 
@@ -197,6 +227,7 @@ export class TerrainRenderer {
   private readonly layer = new Container({ sortableChildren: true });
   private readonly palette = createTerrainPalette();
   private readonly entries = new Map<string, RenderTile>();
+  private options = DEFAULT_OPTIONS;
 
   constructor(parent: Container) {
     this.layer.eventMode = 'none';
@@ -205,6 +236,15 @@ export class TerrainRenderer {
 
   get resourceCount(): number {
     return this.entries.size;
+  }
+
+  setOptions(options: TerrainRenderOptions): void {
+    if (
+      this.options.colors === options.colors && this.options.shading === options.shading &&
+      this.options.water === options.water && this.options.classification === options.classification
+    ) return;
+    this.options = { ...options };
+    this.clearTiles();
   }
 
   render(tiles: readonly TerrainTile[], camera: RenderCamera, pendingTiles: readonly TerrainTile[] = []): void {
@@ -242,19 +282,23 @@ export class TerrainRenderer {
   }
 
   destroy(): void {
-    for (const { mesh } of this.entries.values()) this.disposeMesh(mesh);
-    this.entries.clear();
+    this.clearTiles();
     this.layer.destroy();
     this.palette.destroy(true);
   }
 
   private createRenderTile(tile: TerrainTile): RenderTile {
-    const mesh = new Mesh({ geometry: createTileGeometry(tile), texture: this.palette });
+    const mesh = new Mesh({ geometry: createTileGeometry(tile, this.options), texture: this.palette });
     mesh.zIndex = tile.bounds.minX + tile.bounds.maxX + tile.bounds.minY + tile.bounds.maxY;
     const origin = { x: tile.xs[0], y: tile.ys[0] };
     const entry = { mesh, origin };
     this.entries.set(tile.key, entry);
     return entry;
+  }
+
+  private clearTiles(): void {
+    for (const { mesh } of this.entries.values()) this.disposeMesh(mesh);
+    this.entries.clear();
   }
 
   private disposeMesh(mesh: Mesh): void {

@@ -1,12 +1,14 @@
 import { Application } from 'pixi.js'
 import { HexOverlay } from './render/hex-overlay.ts'
+import { RiverOverlay, RIVER_LINE_SPACING } from './render/river-overlay.ts'
+import { TerrainDebugOverlay } from './render/terrain-debug.ts'
 import { TerrainRenderer } from './render/terrain-renderer.ts'
 import {
-  createWorldMetadata, loadWorldMetadata, type WorldStorage,
+  createWorldMetadata, DEFAULT_AETHER_CONFIG, loadActiveWorld, type WorldStorage,
 } from './terrain/index.ts'
-import { createInterface } from './ui.ts'
+import { createInterface, type MapLayer } from './ui.ts'
 import { CameraController } from './world/camera.ts'
-import { clamp, worldToHex, type Point } from './world/coordinates.ts'
+import { clamp, worldToChunk, worldToHex, type Point } from './world/coordinates.ts'
 import type { StreamFrame } from './world/streaming.ts'
 import { TerrainSurface } from './world/surface.ts'
 import { WorldManager } from './world/world.ts'
@@ -32,11 +34,15 @@ async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
   const storage = browserStorage()
   let world: WorldManager
   try {
-    world = new WorldManager(loadWorldMetadata(storage), storage)
+    const { metadata, migrated } = loadActiveWorld(storage)
+    world = new WorldManager(metadata, storage)
+    if (migrated) {
+      ui.showWarning('Đã mở Aetheria 2.0. Các bản vá của bộ sinh v1 được giữ lại riêng vì bố cục địa hình đã thay đổi.')
+    }
   } catch (error) {
     console.warn('Cannot open the saved world', error)
     world = new WorldManager(createWorldMetadata())
-    ui.showError('Không đọc được thế giới đã lưu. Đang hiển thị thế giới mặc định.')
+    ui.showWarning('Không đọc được thế giới đã lưu. Đang hiển thị thế giới mặc định.')
   }
 
   const app = new Application()
@@ -55,14 +61,19 @@ async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
   viewport.setAttribute('aria-label', 'Bản đồ tương tác. Dùng phím mũi tên để di chuyển, dấu cộng và dấu trừ để thu phóng.')
 
   const renderer = new TerrainRenderer(app.stage)
+  const rivers = new RiverOverlay(app.stage)
   const overlay = new HexOverlay(app.stage)
+  const debugOverlay = new TerrainDebugOverlay(app.stage)
   const surface = new TerrainSurface()
   const camera = new CameraController(world.terrain.metadata.worldSizeMeters)
 
   let frame: StreamFrame | undefined
   let pointer: Point | null = null
   let drag: { id: number; position: Point } | null = null
-  let showHex = false
+  const layers: Record<MapLayer, boolean> = {
+    colors: true, shading: true, hex: false, chunks: false, contours: false,
+    water: true, classification: false,
+  }
   let mapDirty = true
   let overlayDirty = true
   let request: number | null = null
@@ -101,8 +112,13 @@ async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
     const spacing = frame.tiles[0]?.spacing ?? 0
     const sample = world.terrain.sample(position.x, position.y, spacing)
 
-    if (updateMap || overlayDirty || showHex) {
-      overlay.render(showHex, hex, camera, surface, spacing || Infinity, updateMap || overlayDirty)
+    if (updateMap || overlayDirty || layers.hex) {
+      overlay.render(layers.hex, hex, camera, surface, spacing || Infinity, updateMap || overlayDirty)
+      if (updateMap || overlayDirty) {
+        const flow = layers.water && spacing >= RIVER_LINE_SPACING ? world.terrain.riverSegments : []
+        rivers.render(flow, camera, surface, spacing, layers.colors)
+        debugOverlay.render(layers, camera, frame.tiles)
+      }
       app.render()
       overlayDirty = false
     }
@@ -118,6 +134,12 @@ async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
       hex,
       biome: sample.biome,
       elevation: sample.elevation,
+      chunk: worldToChunk(position.x, position.y, camera.worldSize),
+      landform: sample.landform,
+      surface: sample.surface,
+      slope: sample.slope,
+      ruggedness: sample.ruggedness,
+      water: sample.water,
       zoom: camera.zoom,
       loading: frame.loading,
       ...scaleBar(view.pixelsPerMeter),
@@ -231,8 +253,21 @@ async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
 
   ui.onZoom(zoomFromCenter)
   ui.onHome(resetView)
-  ui.onHexToggle((show) => {
-    showHex = show
+  ui.onFocusContinent(() => {
+    const metadata = world.terrain.metadata
+    const outline = (metadata.layout ?? DEFAULT_AETHER_CONFIG).landmasses
+      .filter(({ region }) => region === 'main')
+      .flatMap(({ outline }) => outline.map(([x, y]) => ({ x: x * camera.worldSize, y: y * camera.worldSize })))
+    camera.frameRegion(outline)
+    pointer = null
+    invalidateMap()
+  })
+  ui.onLayerChange((layer, enabled) => {
+    layers[layer] = enabled
+    if (layer !== 'hex' && layer !== 'chunks' && layer !== 'contours') {
+      renderer.setOptions(layers)
+      invalidateMap()
+    }
     overlayDirty = true
     schedule()
   })

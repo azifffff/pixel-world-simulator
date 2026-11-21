@@ -55,6 +55,20 @@ export class CameraController {
     this.stopZoom()
   }
 
+  frameRegion(outline: readonly Point[]): void {
+    if (outline.length === 0) return
+    const projected = outline.map(({ x, y }) => projectIsometric(x, y))
+    const minX = Math.min(...projected.map(({ x }) => x))
+    const maxX = Math.max(...projected.map(({ x }) => x))
+    const minY = Math.min(...projected.map(({ y }) => y))
+    const maxY = Math.max(...projected.map(({ y }) => y))
+    const center = unprojectIsometric((minX + maxX) / 2, (minY + maxY) / 2)
+    const scale = WORLD_FRAME_PADDING * Math.min(this.width / (maxX - minX), this.height / (maxY - minY))
+    this.setCenter(center.x, center.y)
+    this.scale = clamp(scale, this.minimumScale, this.maximumScale())
+    this.stopZoom()
+  }
+
   panBy(deltaScreenX: number, deltaScreenY: number): void {
     this.stopZoom()
     const offset = unprojectIsometric(deltaScreenX / this.scale, deltaScreenY / this.scale)

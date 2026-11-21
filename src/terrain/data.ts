@@ -13,17 +13,21 @@ export class TerrainData {
     this.edits = new TerrainPatchManager(this.metadata, storage);
   }
 
+  get riverSegments() {
+    return this.generator.hydrology.segments;
+  }
+
   get revision(): number {
     return this.edits.revision;
   }
 
   sample(x: number, y: number, spacing = 0): TerrainSample {
-    return this.edits.apply(x, y, this.generator.sample(x, y, spacing));
+    const elevation = this.edits.elevationOverrideAt(x, y, () => this.generator.elevationAt(x, y));
+    return this.edits.apply(x, y, this.generator.sample(x, y, spacing, elevation, this.elevationAt), true);
   }
 
-  elevationAt(x: number, y: number): number {
-    return this.edits.elevationOverrideAt(x, y) ?? this.generator.elevationAt(x, y);
-  }
+  elevationAt = (x: number, y: number): number =>
+    this.edits.elevationOverrideAt(x, y, () => this.generator.elevationAt(x, y)) ?? this.generator.elevationAt(x, y);
 
   setAuthoredTerrain(patch: TerrainPatch): void {
     this.edits.set('authored', patch);
