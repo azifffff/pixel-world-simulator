@@ -1,4 +1,4 @@
-export const WORLD_AREA_KM2 = 1_530_000_000
+export const WORLD_AREA_KM2 = 1_020_200_000
 export const WORLD_SIDE_METERS = Math.sqrt(WORLD_AREA_KM2) * 1_000
 export const HEX_FLAT_WIDTH_METERS = 20_000
 export const HEX_RADIUS_METERS = HEX_FLAT_WIDTH_METERS / Math.sqrt(3)
@@ -12,7 +12,8 @@ const HEX_HALF_RADIUS = HEX_RADIUS_METERS / 2
 const HEX_ROW_HEIGHT = HEX_RADIUS_METERS * 1.5
 const ISO_X = Math.SQRT1_2
 const ISO_Y = Math.SQRT1_2 * 0.5
-const ISO_HEIGHT = 0.45
+// Projection only. Samples, slope calculations and saved patches stay in world meters.
+const ISO_HEIGHT = 0.67
 
 export interface Point {
   x: number

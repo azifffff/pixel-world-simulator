@@ -34,15 +34,16 @@ function area(polygon) {
 }
 
 test('world dimensions preserve the intended physical area and grid scale', () => {
-  assert.equal(WORLD_AREA_KM2, 1_530_000_000);
-  approximately((WORLD_SIDE_METERS / 1_000) ** 2, WORLD_AREA_KM2, 50);
+  assert.equal(WORLD_AREA_KM2, 1_020_200_000);
+  approximately((WORLD_SIDE_METERS / 1_000) ** 2, WORLD_AREA_KM2, 0.00001);
+  approximately(WORLD_SIDE_METERS / 1_000, 31_940, 1);
   assert.equal(HEX_FLAT_WIDTH_METERS, 20_000);
   assert.equal(CHUNK_SIZE_METERS, 128 * 5);
 
   const fullHex = clippedHexPolygon(100, 100);
   assert.equal(fullHex.length, 6);
   approximately(area(fullHex) / 1_000_000, 346.410162, 0.000001);
-  approximately(WORLD_AREA_KM2 / (area(fullHex) / 1_000_000), 4_420_000, 5_000);
+  approximately(WORLD_AREA_KM2 / (area(fullHex) / 1_000_000), 2_945_000, 1_000);
 });
 
 test('hex centers round trip and all six neighbors share an edge', () => {

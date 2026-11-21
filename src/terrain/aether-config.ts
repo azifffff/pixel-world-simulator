@@ -29,6 +29,17 @@ export interface PlateauField extends RegionalField {
   readonly style: PlateauStyle;
 }
 
+export interface EscarpmentField {
+  readonly id: string;
+  readonly center: LayoutPoint;
+  /** Angle of the downhill normal in world XY. */
+  readonly direction: number;
+  readonly halfLengthMeters: number;
+  readonly shoulderMeters: number;
+  readonly wallMeters: number;
+  readonly height: number;
+}
+
 export interface AetherConfig {
   readonly landmasses: readonly Landmass[];
   readonly mountainSystems: readonly RidgeSystem[];
@@ -38,6 +49,7 @@ export interface AetherConfig {
   readonly volcanoes: readonly RegionalField[];
   readonly magicalSeas: readonly RegionalField[];
   readonly trenches: readonly RegionalField[];
+  readonly escarpments?: readonly EscarpmentField[];
   readonly noise: {
     readonly coastWarp: number;
     readonly coastGrain: number;
@@ -45,38 +57,46 @@ export interface AetherConfig {
   };
 }
 
+// A broad continental core, an open eastern gulf and one wide southwestern cape.
 const MAIN_SILHOUETTE: readonly LayoutPoint[] = [
-  [0.206, 0.334], [0.221, 0.307], [0.254, 0.290], [0.259, 0.271],
-  [0.284, 0.265], [0.307, 0.282], [0.312, 0.310], [0.336, 0.333],
-  [0.359, 0.320], [0.376, 0.285], [0.399, 0.261], [0.419, 0.255],
-  [0.414, 0.282], [0.398, 0.314], [0.394, 0.350], [0.420, 0.362],
-  [0.442, 0.389], [0.433, 0.414], [0.408, 0.413], [0.384, 0.392],
-  [0.365, 0.418], [0.373, 0.448], [0.401, 0.471], [0.430, 0.470],
-  [0.456, 0.488], [0.454, 0.519], [0.435, 0.539], [0.415, 0.553],
-  [0.401, 0.580], [0.408, 0.602], [0.438, 0.623], [0.444, 0.653],
-  [0.431, 0.678], [0.413, 0.663], [0.405, 0.636], [0.382, 0.617],
-  [0.359, 0.617], [0.342, 0.642], [0.348, 0.673], [0.335, 0.703],
-  [0.315, 0.699], [0.314, 0.667], [0.297, 0.650], [0.275, 0.658],
-  [0.262, 0.684], [0.240, 0.718], [0.218, 0.709], [0.237, 0.675],
-  [0.240, 0.649], [0.222, 0.626], [0.194, 0.634], [0.168, 0.651],
-  [0.141, 0.653], [0.128, 0.640], [0.149, 0.624], [0.174, 0.614],
-  [0.189, 0.590], [0.176, 0.572], [0.154, 0.578], [0.131, 0.566],
-  [0.119, 0.540], [0.127, 0.512], [0.147, 0.494], [0.150, 0.469],
-  [0.135, 0.447], [0.107, 0.439], [0.103, 0.405], [0.118, 0.381],
-  [0.146, 0.374], [0.166, 0.352], [0.177, 0.335], [0.186, 0.355],
-  [0.198, 0.365], [0.209, 0.356],
+  [0.226, 0.350], [0.250, 0.328], [0.270, 0.309], [0.297, 0.305],
+  [0.326, 0.311], [0.347, 0.320], [0.375, 0.313], [0.397, 0.323],
+  [0.413, 0.348], [0.416, 0.375], [0.403, 0.401], [0.383, 0.412],
+  [0.378, 0.431], [0.392, 0.450], [0.419, 0.464], [0.430, 0.488],
+  [0.420, 0.516], [0.409, 0.542], [0.401, 0.570], [0.408, 0.594],
+  [0.395, 0.619], [0.365, 0.638], [0.335, 0.645], [0.303, 0.635],
+  [0.277, 0.639], [0.251, 0.655], [0.227, 0.660], [0.206, 0.647],
+  [0.204, 0.625], [0.221, 0.601], [0.213, 0.583], [0.184, 0.579],
+  [0.156, 0.562], [0.141, 0.538], [0.144, 0.511], [0.159, 0.488],
+  [0.175, 0.472], [0.177, 0.451], [0.165, 0.431], [0.164, 0.405],
+  [0.184, 0.383], [0.210, 0.376],
+];
+
+// The remote land is oriented northwest–southeast, with a hooked eastern coast.
+const REMOTE_SILHOUETTE: readonly LayoutPoint[] = [
+  [0.626, 0.287], [0.642, 0.265], [0.674, 0.253], [0.699, 0.259],
+  [0.723, 0.278], [0.754, 0.280], [0.781, 0.301], [0.798, 0.306],
+  [0.825, 0.296], [0.858, 0.307], [0.873, 0.329], [0.862, 0.353],
+  [0.837, 0.373], [0.809, 0.366], [0.789, 0.383], [0.797, 0.410],
+  [0.818, 0.433], [0.811, 0.452], [0.784, 0.461], [0.757, 0.451],
+  [0.727, 0.435], [0.706, 0.411], [0.689, 0.388], [0.665, 0.379],
+  [0.642, 0.355], [0.635, 0.329],
 ];
 
 function mass(id: string, region: LandRegion, outline: readonly LayoutPoint[]): Landmass {
   return { id, region, outline };
 }
 
-function island(id: string, x: number, y: number, rx: number, ry: number): Landmass {
+function island(id: string, x: number, y: number, rx: number, ry: number, angle = 0): Landmass {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
   const corners: readonly LayoutPoint[] = [
     [-0.82, -0.35], [-0.3, -0.9], [0.3, -1], [0.72, -0.55], [0.5, -0.12],
     [1, 0.23], [0.49, 0.75], [-0.13, 0.97], [-0.55, 0.53], [-1, 0.24],
   ];
-  return mass(id, 'island', corners.map(([a, b]) => [x + a * rx, y + b * ry]));
+  return mass(id, 'island', corners.map(([a, b]) => [
+    x + a * rx * cos - b * ry * sin, y + a * rx * sin + b * ry * cos,
+  ]));
 }
 
 function field(id: string, x: number, y: number, rx: number, ry: number, height: number, rotation = 0): RegionalField {
@@ -85,28 +105,19 @@ function field(id: string, x: number, y: number, rx: number, ry: number, height:
 
 export const DEFAULT_AETHER_CONFIG: AetherConfig = validateAetherConfig({
   landmasses: [
-    mass('aetheria', 'main', MAIN_SILHOUETTE.map(([x, y]) => [0.277 + (x - 0.277) * 0.69, 0.485 + (y - 0.485) * 0.69])),
-    mass('mythic-shore', 'remote', [
-      [0.710, 0.287], [0.732, 0.260], [0.758, 0.258], [0.777, 0.280], [0.793, 0.274],
-      [0.806, 0.250], [0.825, 0.265], [0.823, 0.297], [0.848, 0.316], [0.858, 0.351],
-      [0.844, 0.375], [0.820, 0.374], [0.801, 0.356], [0.789, 0.384], [0.800, 0.417],
-      [0.775, 0.447], [0.748, 0.450], [0.732, 0.426], [0.706, 0.416], [0.686, 0.395],
-      [0.688, 0.362], [0.712, 0.348], [0.722, 0.320], [0.699, 0.305],
-    ]),
-    island('northwestern-skerries', 0.147, 0.390, 0.010, 0.009),
-    island('northern-sound', 0.271, 0.310, 0.012, 0.007),
-    island('northeastern-shelf', 0.374, 0.335, 0.012, 0.009),
-    island('eastern-skerries', 0.423, 0.440, 0.014, 0.009),
-    island('western-bay-isle', 0.153, 0.569, 0.012, 0.007),
-    island('southern-arc-1', 0.303, 0.671, 0.015, 0.013),
-    island('southern-arc-2', 0.343, 0.699, 0.014, 0.010),
-    island('southern-arc-3', 0.378, 0.721, 0.019, 0.012),
-    island('southern-arc-4', 0.419, 0.726, 0.012, 0.010),
-    island('southern-arc-5', 0.448, 0.703, 0.017, 0.012),
-    island('southern-arc-6', 0.477, 0.682, 0.010, 0.008),
-    island('southern-arc-7', 0.505, 0.653, 0.009, 0.007),
-    island('outer-arc', 0.529, 0.629, 0.006, 0.005),
-    island('remote-skerries', 0.864, 0.395, 0.010, 0.013),
+    mass('aetheria', 'main', MAIN_SILHOUETTE),
+    mass('mythic-shore', 'remote', REMOTE_SILHOUETTE),
+    island('northwestern-skerries', 0.155, 0.373, 0.011, 0.008, -0.6),
+    island('northern-sound', 0.318, 0.277, 0.014, 0.008, 0.35),
+    island('eastern-skerries', 0.451, 0.453, 0.011, 0.007, -0.8),
+    island('western-bay-isle', 0.160, 0.605, 0.013, 0.008, 0.3),
+    island('southern-arc-1', 0.296, 0.682, 0.018, 0.011, 0.25),
+    island('southern-arc-2', 0.337, 0.718, 0.010, 0.008, -0.5),
+    island('southern-arc-3', 0.377, 0.738, 0.021, 0.012, 0.3),
+    island('southern-arc-4', 0.429, 0.731, 0.016, 0.009, -0.2),
+    island('southern-arc-5', 0.466, 0.705, 0.012, 0.009, -0.7),
+    island('outer-arc', 0.509, 0.673, 0.009, 0.006, 0.6),
+    island('remote-skerries', 0.879, 0.385, 0.013, 0.009, 0.5),
   ],
   mountainSystems: [
     { id: 'central-cordillera', paths: [
@@ -120,7 +131,7 @@ export const DEFAULT_AETHER_CONFIG: AetherConfig = validateAetherConfig({
       [[0.327, 0.538], [0.352, 0.531], [0.377, 0.542]],
     ], width: 0.019, height: 3_760, roughness: 0.9 },
     { id: 'northern-massifs', paths: [[
-      [0.348, 0.379], [0.355, 0.370], [0.365, 0.357],
+      [0.348, 0.379], [0.356, 0.369], [0.368, 0.358], [0.367, 0.345],
     ]], width: 0.018, height: 3_410, roughness: 0.82 },
     { id: 'northwest-uplands', paths: [[
       [0.186, 0.434], [0.200, 0.408], [0.221, 0.394],
@@ -142,7 +153,7 @@ export const DEFAULT_AETHER_CONFIG: AetherConfig = validateAetherConfig({
   majorPlains: [
     field('western-lowplain', 0.206, 0.490, 0.062, 0.071, 180, 0.34),
     field('southern-lowplain', 0.273, 0.591, 0.057, 0.030, 145, -0.43),
-    field('northern-lowplain', 0.250, 0.366, 0.020, 0.014, 220, 0.31),
+    field('northern-lowplain', 0.261, 0.353, 0.030, 0.018, 220, 0.31),
     field('midland-passage', 0.281, 0.509, 0.049, 0.019, 330, -0.37),
     field('northwest-valleys', 0.205, 0.420, 0.036, 0.028, 325, 0.4),
   ],
@@ -156,7 +167,7 @@ export const DEFAULT_AETHER_CONFIG: AetherConfig = validateAetherConfig({
   volcanoes: [
     field('southeastern-caldera', 0.355, 0.576, 0.017, 0.014, 2_360, -0.38),
     field('eastern-volcanic-cone', 0.375, 0.523, 0.009, 0.011, 1_820, 0.39),
-    field('arc-island-volcano', 0.377, 0.721, 0.015, 0.011, 2_250, 0.19),
+    field('arc-island-volcano', 0.377, 0.738, 0.015, 0.011, 2_250, 0.19),
   ],
   magicalSeas: [
     field('auroral-sea', 0.552, 0.298, 0.098, 0.047, 0, -0.41),
@@ -167,7 +178,13 @@ export const DEFAULT_AETHER_CONFIG: AetherConfig = validateAetherConfig({
     field('southern-trench', 0.419, 0.790, 0.146, 0.028, 1_650, -0.17),
     field('far-ocean-trench', 0.917, 0.584, 0.041, 0.222, 1_850, 0.32),
   ],
-  noise: { coastWarp: 0.0085, coastGrain: 0.0029, localRelief: 1 },
+  escarpments: [
+    {
+      id: 'eastern-tableland-shelf', center: [0.3975, 0.520], direction: 0.55,
+      halfLengthMeters: 1_450, shoulderMeters: 1_200, wallMeters: 20, height: 125,
+    },
+  ],
+  noise: { coastWarp: 0.0048, coastGrain: 0.00145, localRelief: 1 },
 });
 
 function record(value: unknown, name: string): Record<string, unknown> {
@@ -244,10 +261,25 @@ export function validateAetherConfig(value: unknown): AetherConfig {
   const volcanoes = items(input.volcanoes, 'volcanoes', regional);
   const magicalSeas = items(input.magicalSeas, 'magical seas', regional);
   const trenches = items(input.trenches, 'trenches', regional);
-  const features = [...landmasses, ...mountainSystems, ...plateaus, ...majorPlains, ...basins, ...volcanoes, ...magicalSeas, ...trenches];
+  const escarpments = input.escarpments === undefined ? undefined : items(input.escarpments, 'escarpments', (raw): EscarpmentField => {
+    const shelf = record(raw, 'escarpment');
+    const shoulderMeters = real(shelf.shoulderMeters, 'escarpment shoulder', 20, 20_000);
+    return Object.freeze({
+      id: identifier(shelf.id),
+      center: point(shelf.center, 'escarpment center'),
+      direction: real(shelf.direction, 'escarpment direction', -Math.PI, Math.PI),
+      halfLengthMeters: real(shelf.halfLengthMeters, 'escarpment half length', 40, 20_000),
+      shoulderMeters,
+      wallMeters: real(shelf.wallMeters, 'escarpment wall', 1, Math.min(150, shoulderMeters / 2)),
+      height: real(shelf.height, 'escarpment height', 1, 500),
+    });
+  });
+  const features = [...landmasses, ...mountainSystems, ...plateaus, ...majorPlains, ...basins, ...volcanoes,
+    ...magicalSeas, ...trenches, ...(escarpments ?? [])];
   if (new Set(features.map(({ id }) => id)).size !== features.length) throw new Error('Duplicate layout feature ID');
   return Object.freeze({
     landmasses, mountainSystems, plateaus, majorPlains, basins, volcanoes, magicalSeas, trenches,
+    ...(escarpments === undefined ? {} : { escarpments }),
     noise: Object.freeze({
       coastWarp: real(noise.coastWarp, 'coast warp', 0, 0.05),
       coastGrain: real(noise.coastGrain, 'coast grain', 0, 0.02),

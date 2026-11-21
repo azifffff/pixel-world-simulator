@@ -1,5 +1,5 @@
 import {
-  DEFAULT_AETHER_CONFIG, type AetherConfig, type Landmass, type LandRegion, type LayoutPoint,
+  DEFAULT_AETHER_CONFIG, type AetherConfig, type EscarpmentField, type Landmass, type LandRegion, type LayoutPoint,
   type PlateauStyle, type RegionalField, type RidgeSystem,
 } from './aether-config.ts';
 import { MAX_ELEVATION, MIN_ELEVATION, type WorldMetadata } from './metadata.ts';
@@ -61,6 +61,15 @@ interface PreparedField<T extends RegionalField> {
   readonly cos: number;
   readonly sin: number;
   readonly boundRadius: number;
+}
+
+interface PreparedEscarpment {
+  readonly field: EscarpmentField;
+  readonly worldX: number;
+  readonly worldY: number;
+  readonly normalX: number;
+  readonly normalY: number;
+  readonly boundMeters: number;
 }
 
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
@@ -157,14 +166,19 @@ function crossingBucket(y: number, bounds: BoundingBox): number {
 }
 
 function prepareShoreline(land: Landmass): Shoreline {
-  // Soften polygon corners while retaining authored straight sections and sharp capes.
-  const outline = land.outline.flatMap(([x, y], index): LayoutPoint[] => {
-    const [nextX, nextY] = land.outline[(index + 1) % land.outline.length];
-    return [
-      [blend(x, nextX, 0.16), blend(y, nextY, 0.16)],
-      [blend(x, nextX, 0.84), blend(y, nextY, 0.84)],
-    ];
-  });
+  // Round the continental outlines at macro scale before applying local shoreline grain.
+  const smoothingPasses = land.region === 'island' ? 1 : 2;
+  let outline = land.outline;
+  for (let pass = 0; pass < smoothingPasses; pass++) {
+    const previous = outline;
+    outline = previous.flatMap(([x, y], index): LayoutPoint[] => {
+      const [nextX, nextY] = previous[(index + 1) % previous.length];
+      return [
+        [blend(x, nextX, 0.2), blend(y, nextY, 0.2)],
+        [blend(x, nextX, 0.8), blend(y, nextY, 0.8)],
+      ];
+    });
+  }
   const bounds = box(outline);
   const edges = segments(outline, true);
   const crossings = Array.from({ length: CROSSING_BUCKETS }, (): Segment[] => []);
@@ -237,6 +251,7 @@ export class AetherLayout {
   private readonly volcanoes: readonly PreparedField<RegionalField>[];
   private readonly magicalSeas: readonly PreparedField<RegionalField>[];
   private readonly trenches: readonly PreparedField<RegionalField>[];
+  private readonly escarpments: readonly PreparedEscarpment[];
 
   constructor(metadata: WorldMetadata) {
     const config = metadata.layout ?? DEFAULT_AETHER_CONFIG;
@@ -253,6 +268,11 @@ export class AetherLayout {
     this.volcanoes = config.volcanoes.map(prepareField);
     this.magicalSeas = config.magicalSeas.map(prepareField);
     this.trenches = config.trenches.map(prepareField);
+    this.escarpments = (config.escarpments ?? []).map((field) => ({
+      field, worldX: field.center[0] * this.side, worldY: field.center[1] * this.side,
+      normalX: Math.cos(field.direction), normalY: Math.sin(field.direction),
+      boundMeters: field.halfLengthMeters * 1.16 + field.shoulderMeters + field.wallMeters,
+    }));
   }
 
   sample(x: number, y: number): LayoutSample {
@@ -329,7 +349,7 @@ export class AetherLayout {
     const floor = Math.max(13, eroded - Math.min(basin.height, eroded * 0.84));
     const land = blend(eroded, floor, basin.signal);
     const terrainTexture = this.localRelief(x, y, u, v, ridge.signal, plateau.rockiness, plain);
-    const elevation = Math.max(0, (land + terrainTexture) * this.reliefMultiplier * emergence);
+    const elevation = Math.max(0, (land + terrainTexture + this.escarpmentHeight(x, y)) * this.reliefMultiplier * emergence);
     const moisture = climate ? this.moisture(u, v, inland, ridge.signal, basin.signal) : 0;
     return {
       elevation: Math.min(MAX_ELEVATION, elevation), coast, region, plain,
@@ -463,13 +483,44 @@ export class AetherLayout {
     if (terrain === 0) return 0;
     const mountain = 1.7 * ridge;
     const ruggedness = (0.49 + mountain + 0.53 * rockiness) * (1 - 0.58 * plain);
-    return terrain * ruggedness * (
+    const undulations = ruggedness * (
       170 * (this.noise(u * 375, v * 375, 17) - 0.5) +
       50 * (this.noise(x / 8_900, y / 8_900, 18) - 0.5) +
       15 * (this.noise(x / 1_200, y / 1_200, 19) - 0.5) +
       4.1 * (this.noise(x / 117, y / 117, 20) - 0.5) +
       0.82 * (this.noise(x / 28, y / 28, 21) - 0.5)
     );
+    // Narrow gullies on rugged uplands increase actual gradients at local scales.
+    const rockySlope = smooth(0.14, 0.82, ridge + 0.36 * rockiness) * (1 - 0.66 * plain);
+    if (rockySlope === 0) return terrain * undulations;
+    const line = this.noise(x / 6_200 + y / 8_400, y / 3_600, 24);
+    const branches = this.noise(x / 1_750 - y / 5_100, y / 1_200, 25);
+    const cut = 1 - smooth(0.03, 0.36, Math.abs(line + 0.16 * (branches - 0.5) - 0.5));
+    const incision = rockySlope * cut * (62 + 86 * branches);
+    return terrain * (undulations - incision);
+  }
+
+  private escarpmentHeight(x: number, y: number): number {
+    let height = 0;
+    for (const { field, worldX, worldY, normalX, normalY, boundMeters } of this.escarpments) {
+      const dx = x - worldX;
+      const dy = y - worldY;
+      if (Math.abs(dx) > boundMeters || Math.abs(dy) > boundMeters) continue;
+
+      const along = dy * normalX - dx * normalY;
+      const alongFraction = Math.abs(along) / field.halfLengthMeters;
+      if (alongFraction >= 1) continue;
+
+      // A gently curved break in slope, with a broad shoulder on the raised side.
+      // The ends and shoulder taper back into the regional plateau.
+      const bend = field.halfLengthMeters * 0.16 * alongFraction ** 2;
+      const edgeGrain = field.wallMeters * 0.28 * Math.sin(along / 85);
+      const downhill = dx * normalX + dy * normalY - bend - edgeGrain;
+      const wall = 1 - smooth(-field.wallMeters / 2, field.wallMeters / 2, downhill);
+      const shoulder = 1 - smooth(field.shoulderMeters * 0.25, field.shoulderMeters, -downhill);
+      height = Math.max(height, field.height * wall * shoulder * (1 - smooth(0.6, 1, alongFraction)));
+    }
+    return height;
   }
 
   private temperature(u: number, v: number, elevation: number): number {

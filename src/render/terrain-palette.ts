@@ -2,6 +2,7 @@ import { BufferImageSource, Texture } from 'pixi.js';
 import { BATHYMETRY_MATERIALS, MATERIALS } from '../terrain/aether-classification.ts';
 
 const DECORATION = [0x564537, 0x27453d, 0x3d664d, 0x618552, 0x9aa965];
+const CLIFF_ROCK = 0x847769;
 const SHADE_STEP = 0.018;
 const DEPTH_LEVELS = 96;
 const MAX_DEPTH = 7_000;
@@ -12,7 +13,8 @@ const DEPTH_RAMP = [
   [MAX_DEPTH, BATHYMETRY_MATERIALS.trench],
 ] as const;
 export const PALETTE_WIDTH = 49;
-export const PALETTE_HEIGHT = MATERIALS.length + DEPTH_LEVELS + 1;
+const CLIFF_ROW = MATERIALS.length + DEPTH_LEVELS;
+export const PALETTE_HEIGHT = CLIFF_ROW + 2;
 const NEUTRAL_COLUMN = (PALETTE_WIDTH - 1) / 2;
 
 function writeColor(data: Uint8Array, pixel: number, color: number, shade: number, target = color, mix = 0): void {
@@ -49,6 +51,11 @@ export function createTerrainPalette(): Texture {
     }
   }
 
+  for (let column = 0; column < PALETTE_WIDTH; column++) {
+    const shade = 1 + (column - NEUTRAL_COLUMN) * SHADE_STEP;
+    writeColor(pixels, CLIFF_ROW * PALETTE_WIDTH + column, CLIFF_ROCK, shade);
+  }
+
   for (const [index, color] of DECORATION.entries()) {
     writeColor(pixels, (PALETTE_HEIGHT - 1) * PALETTE_WIDTH + index, color, 1);
   }
@@ -71,6 +78,10 @@ export function terrainTexel(material: number, light: number, bathymetry?: numbe
     ? material
     : MATERIALS.length + Math.round(Math.max(0, Math.min(1, -bathymetry / MAX_DEPTH)) * (DEPTH_LEVELS - 1));
   return row * PALETTE_WIDTH + Math.max(0, Math.min(PALETTE_WIDTH - 1, column));
+}
+
+export function cliffTexel(light: number): number {
+  return terrainTexel(CLIFF_ROW, light);
 }
 
 export function decorationTexel(index: number): number {

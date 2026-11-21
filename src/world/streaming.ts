@@ -155,16 +155,22 @@ export class ChunkManager {
     const maxMilliseconds = budget.maxMilliseconds ?? STREAM_SETTINGS.maxMillisecondsPerFrame;
     const targetMissing = this.missingRequests(target, view.center);
     let display = target;
+    let preview: TileLayout | undefined;
 
     if (targetMissing.length > 0) {
       display = this.chooseDisplayLayout(target, view, targetMissing.length);
       const deadline = performance.now() + maxMilliseconds;
       let generated = 0;
       const displayMissing = display === target ? [] : this.missingRequests(display, view.center);
+      if (displayMissing.length === 0 && targetMissing.length > 12) {
+        preview = this.previewLayout(display, target, view);
+      }
 
-      build: for (const { layout, requests } of [
-        { layout: display, requests: displayMissing }, { layout: target, requests: targetMissing },
-      ]) {
+      const jobs = [{ layout: display, requests: displayMissing }];
+      if (preview) jobs.push({ layout: preview, requests: this.missingRequests(preview, view.center) });
+      jobs.push({ layout: target, requests: targetMissing });
+
+      build: for (const { layout, requests } of jobs) {
         for (const request of requests) {
           if (generated >= maxTiles || (generated > 0 && performance.now() >= deadline)) break build;
           if (!this.advanceTile(layout.detail, request, deadline)) break build;
@@ -175,10 +181,12 @@ export class ChunkManager {
 
     const loading = target.requests.some(({ key }) => !this.cache.has(key));
     if (!loading) display = target;
+    else if (preview?.requests.every(({ key }) => this.cache.has(key))) display = preview;
     this.displaySpacing = display.detail.spacing;
 
-    // Protect both the visible layout and pending replacement during LRU eviction.
-    const pendingTiles = display.detail.spacing === target.detail.spacing ? [] : this.touchTiles(target);
+    // Protect the visible layout and pending replacements during LRU eviction.
+    const targetTiles = display.detail.spacing === target.detail.spacing ? [] : this.touchTiles(target);
+    const pendingTiles = preview && preview !== display && loading ? this.touchTiles(preview) : targetTiles;
     const tiles = this.touchTiles(display);
     this.trimCache();
 
@@ -218,6 +226,16 @@ export class ChunkManager {
     const coarseSpacing = Math.min(STREAM_SETTINGS.maxSampleSpacing, target.detail.spacing * 4);
     if (coarseSpacing === target.detail.spacing) return target;
     return this.fitLayout(coarseSpacing, view);
+  }
+
+  private previewLayout(display: TileLayout, target: TileLayout, view: StreamView): TileLayout | undefined {
+    if (display.detail.spacing <= target.detail.spacing * 4) return undefined;
+    // On a large zoom jump, resolve a small intermediate view ahead of the
+    // detailed tiles. Keep drawing the complete previous layout until ready.
+    const preview = this.createLayout(target.detail.spacing * 4, view);
+    if (!preview?.requests.length || preview.requests.length > 16) return undefined;
+    const protectedTiles = display.requests.length + preview.requests.length + target.requests.length;
+    return protectedTiles <= STREAM_SETTINGS.maxCachedTiles ? preview : undefined;
   }
 
   private fitLayout(spacing: number, view: StreamView): TileLayout {

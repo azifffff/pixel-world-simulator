@@ -91,6 +91,27 @@ test('coastal and ocean height stay continuous across sea level', () => {
   assert.ok(sample(0.54, 0.49).elevation < sample(shore - 5_000 / side, y).elevation);
 });
 
+test('shoreline noise preserves the authored continental silhouettes', () => {
+  const otherSeed = new AetherLayout({ ...metadata, seed: 'windward' });
+  const noNoise = new AetherLayout({
+    ...metadata, layout: { ...DEFAULT_AETHER_CONFIG, noise: { ...DEFAULT_AETHER_CONFIG.noise, coastWarp: 0, coastGrain: 0 } },
+  });
+  const size = 120;
+  let changed = 0;
+  let referenceLand = 0;
+  for (let row = 0; row < size; row += 1) {
+    for (let column = 0; column < size; column += 1) {
+      const x = (column + 0.5) * side / size;
+      const y = (row + 0.5) * side / size;
+      const reference = noNoise.sample(x, y).region;
+      if (reference === 'main' || reference === 'remote') referenceLand += 1;
+      const baseline = layout.sample(x, y).region;
+      if (baseline !== reference || otherSeed.sample(x, y).region !== reference) changed += 1;
+    }
+  }
+  assert.ok(changed > 0 && changed < referenceLand * 0.085);
+});
+
 test('layout validation preserves authored structure IDs and isolates caller mutations', () => {
   const edited = structuredClone(DEFAULT_AETHER_CONFIG);
   const ridge = edited.mountainSystems.find(({ id }) => id === 'central-cordillera');
@@ -123,7 +144,7 @@ test('cordillera branches stay high along their axes and grade toward lowlands',
     assert.ok(observations.filter(Boolean).length >= observations.length * 0.85);
   }
 
-  const [x, y] = ridge.paths[0][1];
+  const [x, y] = ridge.paths[0][4];
   const crest = sample(x, y);
   const slope = sample(x - ridge.width * 0.6, y);
   const lowland = sample(x - ridge.width * 1.25, y);
@@ -175,4 +196,28 @@ test('a high tableland has a relatively flat core and a lower rim', () => {
   // The western rim drops toward the lowlands; the southern side joins a cordillera.
   const rim = sample(x - width * 1.04, y);
   assert.ok(rim.elevation > 0 && rim.elevation < Math.min(...heights) - 450);
+});
+
+test('a rocky escarpment is localized in the real height field and independent of LOD', () => {
+  const shelf = DEFAULT_AETHER_CONFIG.escarpments[0];
+  const [x, y] = shelf.center.map((coordinate) => coordinate * side);
+  const normalX = Math.cos(shelf.direction);
+  const normalY = Math.sin(shelf.direction);
+  const terrain = new TerrainGenerator(metadata);
+  const at = (normalDistance, lateralDistance = 0) => [
+    x + normalDistance * normalX - lateralDistance * normalY,
+    y + normalDistance * normalY + lateralDistance * normalX,
+  ];
+  const crest = terrain.elevationAt(...at(-shelf.wallMeters / 2));
+  const foot = terrain.elevationAt(...at(shelf.wallMeters / 2));
+  assert.ok(crest - foot > shelf.height * 0.9);
+  assert.ok(Math.abs(terrain.elevationAt(...at(-110)) - crest) < 5);
+  assert.ok(Math.abs(terrain.elevationAt(...at(120)) - foot) < 5);
+  const beyond = shelf.halfLengthMeters + 50;
+  assert.ok(Math.abs(terrain.elevationAt(...at(-10, beyond)) - terrain.elevationAt(...at(10, beyond))) < 5);
+  assert.equal(terrain.sample(x, y, 5).elevation, terrain.sample(x, y, 320).elevation);
+
+  const withoutShelf = new AetherLayout({ ...metadata, layout: { ...DEFAULT_AETHER_CONFIG, escarpments: [] } });
+  assert.ok(layout.elevationAt(...at(-10)) - withoutShelf.elevationAt(...at(-10)) > 110);
+  assert.equal(layout.elevationAt(...at(40)), withoutShelf.elevationAt(...at(40)));
 });

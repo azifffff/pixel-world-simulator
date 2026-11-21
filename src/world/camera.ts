@@ -93,8 +93,7 @@ export class CameraController {
     const { screen, world } = this.zoomAnchor
     const offset = this.screenOffset(screen.x, screen.y)
     this.setCenter(world.x - offset.x, world.y - offset.y)
-    if (this.zoom === 1) this.reset()
-    else if (this.scale === this.targetScale) this.zoomAnchor = null
+    if (this.scale === this.targetScale) this.zoomAnchor = null
     return true
   }
 

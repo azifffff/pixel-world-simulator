@@ -31,16 +31,17 @@ function scaleBar(pixelsPerMeter: number): { scaleMeters: number; scalePixels: n
 
 async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
   const viewport = ui.viewport
-  const storage = browserStorage()
+  let storage = browserStorage()
   let world: WorldManager
   try {
     const { metadata, migrated } = loadActiveWorld(storage)
     world = new WorldManager(metadata, storage)
     if (migrated) {
-      ui.showWarning('Đã mở Aetheria 2.0. Các bản vá của bộ sinh v1 được giữ lại riêng vì bố cục địa hình đã thay đổi.')
+      ui.showWarning('Đã mở Aetheria 2.1 với quy mô và đường bờ mới. Bản lưu và Terrain Patch cũ vẫn được giữ riêng theo tọa độ gốc.')
     }
   } catch (error) {
     console.warn('Cannot open the saved world', error)
+    storage = undefined
     world = new WorldManager(createWorldMetadata())
     ui.showWarning('Không đọc được thế giới đã lưu. Đang hiển thị thế giới mặc định.')
   }
@@ -53,6 +54,7 @@ async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
     autoDensity: true,
     backgroundAlpha: 0,
     antialias: false,
+    depth: true,
   })
   app.canvas.setAttribute('aria-hidden', 'true')
   viewport.append(app.canvas)
@@ -137,7 +139,9 @@ async function start(ui: ReturnType<typeof createInterface>): Promise<void> {
       chunk: worldToChunk(position.x, position.y, camera.worldSize),
       landform: sample.landform,
       surface: sample.surface,
-      slope: sample.slope,
+      slope: frame.lod >= 3 && sample.water !== 'ocean'
+        ? surface.slopeAt(position.x, position.y) ?? sample.slope
+        : sample.slope,
       ruggedness: sample.ruggedness,
       water: sample.water,
       zoom: camera.zoom,
