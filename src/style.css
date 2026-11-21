@@ -29,7 +29,7 @@ body { overflow: hidden; }
 button, input { font: inherit; }
 button { cursor: pointer; }
 
-button:focus-visible, input:focus-visible {
+button:focus-visible, input:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
@@ -132,7 +132,7 @@ button:focus-visible, input:focus-visible {
 .map-metrics > div:first-child { min-width: 142px; }
 .map-metrics > div:last-child { padding-right: 0; }
 
-.map-metrics dt, .map-inspector dt, .panel-section h2 {
+.map-metrics dt, .map-inspector dt, .panel-section h2, .view-modes legend, .legend-panel summary {
   color: var(--muted);
   font-size: 10px;
   font-weight: 650;
@@ -167,6 +167,7 @@ button:focus-visible, input:focus-visible {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  scrollbar-width: thin;
   padding: 0 21px;
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -177,7 +178,7 @@ button:focus-visible, input:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
-.panel-section h2 {
+.panel-section h2, .view-modes legend {
   margin: 0 0 13px;
   font-size: 11px;
 }
@@ -240,10 +241,76 @@ button:focus-visible, input:focus-visible {
 
 .seed-fields button:hover { background: #4c402a; }
 
+.continent-focus {
+  display: block;
+  width: 100%;
+  margin-top: 9px;
+  padding: 7px 10px;
+  border: 1px solid #44575a;
+  border-radius: 4px;
+  background: #1a2b2e;
+  color: #dce6df;
+  text-align: left;
+  font-size: 12px;
+}
+
+.continent-focus:hover { background: #243739; }
+
+.view-modes {
+  min-width: 0;
+  margin: 0 0 21px;
+  padding: 0;
+  border: 0;
+}
+
+.view-modes legend { padding: 0; }
+
+.mode-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+  border: 1px solid #44575a;
+  border-radius: 5px;
+  background: #101c1f;
+}
+
+.mode-options label { position: relative; }
+
+.mode-options input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.mode-options span {
+  display: block;
+  padding: 7px 3px;
+  border-radius: 3px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 11px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.mode-options input:checked + span {
+  background: #4f442e;
+  color: #f4d799;
+}
+
+.mode-options input:focus-visible + span { outline: 2px solid var(--accent); }
+
+.legend-panel summary, .map-inspector summary { cursor: pointer; }
+.legend-panel summary { font-size: 11px; }
+
 .terrain-legend {
   display: grid;
   gap: 10px;
-  margin: 0;
+  margin: 14px 0 0;
   padding: 0;
   list-style-type: none;
 }
@@ -257,20 +324,19 @@ button:focus-visible, input:focus-visible {
 }
 
 .terrain-swatch {
+  flex: 0 0 12px;
   width: 12px;
   height: 12px;
   border: 1px solid rgb(255 255 255 / 22%);
   border-radius: 2px;
 }
 
-.terrain-ocean { background: #2e5d74; }
-.terrain-plains { background: #79935f; }
-.terrain-hills { background: #8c8559; }
-.terrain-mountains { background: #b0a492; }
-.terrain-forest { background: #3e694f; }
-.terrain-river { background: #4e9caa; }
+.layer-controls {
+  display: grid;
+  gap: 9px;
+}
 
-.hex-toggle {
+.layer-toggle {
   position: relative;
   display: flex;
   align-items: center;
@@ -281,7 +347,7 @@ button:focus-visible, input:focus-visible {
   font-size: 13px;
 }
 
-.hex-toggle input {
+.layer-toggle input {
   position: absolute;
   right: 0;
   width: 35px;
@@ -311,18 +377,18 @@ button:focus-visible, input:focus-visible {
   content: "";
 }
 
-.hex-toggle input:focus-visible + .toggle-track {
+.layer-toggle input:focus-visible + .toggle-track {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
-.hex-toggle input:checked + .toggle-track {
+.layer-toggle input:checked + .toggle-track {
   justify-content: flex-end;
   border-color: #b39359;
   background: #58492e;
 }
 
-.hex-toggle input:checked + .toggle-track::before { background: var(--accent); }
+.layer-toggle input:checked + .toggle-track::before { background: var(--accent); }
 
 .panel-help {
   margin-top: auto;
@@ -392,16 +458,23 @@ button:focus-visible, input:focus-visible {
   image-rendering: pixelated;
 }
 
-.map-loading, .map-error {
+.map-notices {
   position: absolute;
   z-index: 1;
   top: 19px;
   left: 20px;
+  display: grid;
+  max-width: min(48ch, calc(100% - 84px));
+  justify-items: start;
+  gap: 7px;
+  pointer-events: none;
+}
+
+.map-loading, .map-error, .map-warning {
   margin: 0;
   border: 1px solid #56676a;
   border-radius: 5px;
   background: rgb(17 29 31 / 94%);
-  pointer-events: none;
 }
 
 .map-loading {
@@ -421,11 +494,32 @@ button:focus-visible, input:focus-visible {
 }
 
 .map-error {
-  max-width: min(38ch, calc(100% - 40px));
   padding: 12px;
   border-color: #a96c63;
   color: #ffd2c9;
   font-size: 13px;
+}
+
+.map-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 10px;
+  border-color: #8c7549;
+  color: #eed6a6;
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+.map-warning p { margin: 0; }
+
+.map-warning button {
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .map-compass {
@@ -525,6 +619,7 @@ button:focus-visible, input:focus-visible {
   position: absolute;
   bottom: 22px;
   left: 20px;
+  width: 568px;
   max-width: calc(100% - 108px);
   pointer-events: none;
 }
@@ -552,34 +647,64 @@ button:focus-visible, input:focus-visible {
 }
 
 .map-inspector {
-  display: flex;
-  justify-content: flex-start;
-  max-width: 100%;
   margin: 0;
   border: 1px solid #536367;
   border-radius: 6px;
   background: rgb(18 31 34 / 93%);
+  pointer-events: auto;
 }
 
-.map-inspector > div {
-  min-width: 107px;
-  padding: 10px 12px;
+.map-inspector summary {
+  padding: 9px 12px;
+  color: #dce6df;
+  font-size: 12px;
+  font-weight: 620;
 }
 
-.map-inspector > div + div { border-left: 1px solid #3d5054; }
-.map-inspector dt { margin-bottom: 5px; white-space: nowrap; }
-.map-inspector .inspector-coordinates { min-width: 144px; }
+.map-inspector summary:focus-visible { outline-offset: -3px; }
+.map-inspector summary::marker { color: var(--accent); }
+
+.inspector-preview {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-left: 9px;
+  color: var(--muted);
+  font: 11px var(--mono);
+}
+
+.inspector-preview [data-value="altitude-preview"] { color: var(--accent); }
+.map-inspector[open] .inspector-preview { display: none; }
+
+.map-inspector dl {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(4, minmax(0, 1fr));
+  max-height: min(270px, 38vh);
+  margin: 0;
+  overflow: auto;
+  border-top: 1px solid #3d5054;
+}
+
+.map-inspector dl > div {
+  min-width: 0;
+  padding: 7px 10px;
+  border-right: 1px solid #3d5054;
+  border-bottom: 1px solid #3d5054;
+}
+
+.map-inspector dt { margin-bottom: 4px; font-size: 9px; letter-spacing: .05em; }
 
 .map-inspector dd {
   margin: 0;
   color: #e8efeb;
   font: 11px/1.5 var(--mono);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
+.map-inspector .inspector-coordinates dd { white-space: nowrap; }
+.inspector-grid-id > span { display: block; white-space: nowrap; }
 .map-inspector .coordinate-axis { color: var(--accent); }
-.map-inspector .inspector-altitude { color: var(--muted); }
 
 @media (max-height: 660px) {
   .panel-section { padding: 17px 0; }
@@ -643,8 +768,10 @@ button:focus-visible, input:focus-visible {
   .map-metrics dd { margin-top: 3px; }
   .map-metrics > .metric-tiles { display: none; }
   .map-readouts { bottom: 12px; left: 9px; max-width: calc(100% - 64px); }
-  .map-inspector > div { min-width: 0; padding: 7px 6px; }
-  .map-inspector .inspector-coordinates { min-width: 0; }
+  .map-inspector summary { padding: 8px; font-size: 11px; }
+  .inspector-preview { gap: 6px; margin-left: 5px; font-size: 10px; }
+  .map-inspector dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .map-inspector dl > div { padding: 5px 7px; }
   .map-inspector dt { font-size: 8px; letter-spacing: .04em; }
   .map-inspector dd { font-size: 9px; }
   .map-tools { right: 9px; bottom: 12px; gap: 6px; }
@@ -652,7 +779,7 @@ button:focus-visible, input:focus-visible {
   .map-tools .map-home { width: 39px; height: 39px; }
   .map-zoom { min-width: 39px; }
   .map-compass { top: 12px; right: 9px; }
-  .map-loading, .map-error { top: 12px; left: 9px; }
+  .map-notices { top: 12px; left: 9px; }
 }
 
 @media (max-width: 360px) {

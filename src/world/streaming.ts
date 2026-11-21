@@ -1,4 +1,5 @@
 import { BIOMES, type Biome, type TerrainData } from '../terrain/index.ts';
+import { materialForBiome } from '../terrain/aether-classification.ts';
 import { CHUNK_SIZE_METERS, type Bounds, type Point } from './coordinates.ts';
 
 export { BIOMES };
@@ -31,6 +32,8 @@ export interface TerrainTile extends DetailLevel {
   readonly biomes: Uint8Array;
   readonly surfaceElevations: Float32Array;
   readonly moistures: Uint8Array;
+  readonly materials: Uint8Array;
+  readonly dryMaterials: Uint8Array;
 }
 
 export interface StreamView {
@@ -292,6 +295,8 @@ export class ChunkManager {
         biomes: new Uint8Array(cellCount),
         surfaceElevations: new Float32Array(cellCount),
         moistures: new Uint8Array(cellCount),
+        materials: new Uint8Array(cellCount),
+        dryMaterials: new Uint8Array(cellCount),
       },
       nextRow: 0,
     };
@@ -299,7 +304,7 @@ export class ChunkManager {
 
   private advanceTile(detail: DetailLevel, request: TileRequest, deadline: number): boolean {
     const build = this.partialTile?.tile.key === request.key ? this.partialTile : this.beginTile(detail, request);
-    const { xs, ys, spacing, elevations, biomes, surfaceElevations, moistures } = build.tile;
+    const { xs, ys, spacing, elevations, biomes, surfaceElevations, moistures, materials, dryMaterials } = build.tile;
     const cellWidth = xs.length - 1;
 
     while (build.nextRow < ys.length) {
@@ -314,6 +319,8 @@ export class ChunkManager {
         const sample = this.terrain.sample(centerX, centerY, spacing);
         const index = y * cellWidth + x;
         biomes[index] = BIOME_INDEX[sample.biome];
+        materials[index] = sample.material ?? materialForBiome(sample.biome);
+        dryMaterials[index] = sample.dryMaterial ?? materials[index];
         surfaceElevations[index] = sample.elevation;
         moistures[index] = Math.round(Math.max(0, Math.min(1, sample.moisture)) * 255);
       }

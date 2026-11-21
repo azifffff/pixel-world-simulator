@@ -1,8 +1,10 @@
 import { MAX_DISPLAY_ELEVATION, WORLD_SIDE_METERS } from '../world/coordinates.ts';
+import { validateAetherConfig, type AetherConfig } from './aether-config.ts';
 
-export const GENERATOR_VERSION = 1;
-export const DEFAULT_SEED = 'verdant-reach';
+export const GENERATOR_VERSION = 2;
+export const DEFAULT_SEED = 'aetheria';
 export const WORLD_METADATA_KEY = 'pixel-world:metadata';
+const LEGACY_METADATA_KEY = 'pixel-world:metadata:v1';
 export const MIN_ELEVATION = -7_000;
 export const MAX_ELEVATION = MAX_DISPLAY_ELEVATION;
 
@@ -17,6 +19,7 @@ export interface WorldMetadata {
   readonly generatorVersion: number;
   readonly worldSizeMeters: number;
   readonly terrain: TerrainParameters;
+  readonly layout?: AetherConfig;
 }
 
 export type WorldStorage = Pick<Storage, 'getItem' | 'setItem'>;
@@ -44,7 +47,7 @@ export function validateWorldMetadata(value: unknown): WorldMetadata {
   if (!value || typeof value !== 'object') {
     throw new Error('Invalid world metadata');
   }
-  const { seed, generatorVersion, worldSizeMeters, terrain } = value as Partial<WorldMetadata>;
+  const { seed, generatorVersion, worldSizeMeters, terrain, layout } = value as Partial<WorldMetadata>;
   if (generatorVersion !== GENERATOR_VERSION) {
     throw new Error(`Unsupported terrain generator version: ${String(generatorVersion)}`);
   }
@@ -64,6 +67,7 @@ export function validateWorldMetadata(value: unknown): WorldMetadata {
       reliefMultiplier: terrain.reliefMultiplier,
       riverWidthMeters: terrain.riverWidthMeters,
     }),
+    ...(layout === undefined ? {} : { layout: validateAetherConfig(layout) }),
   });
 }
 
@@ -72,15 +76,32 @@ export function loadWorldMetadata(storage?: WorldStorage): WorldMetadata {
   return stored == null ? createWorldMetadata() : validateWorldMetadata(JSON.parse(stored));
 }
 
+export function loadActiveWorld(storage?: WorldStorage): { metadata: WorldMetadata; migrated: boolean } {
+  const stored = storage?.getItem(WORLD_METADATA_KEY);
+  if (stored == null) return { metadata: createWorldMetadata(), migrated: false };
+  const value = JSON.parse(stored) as Partial<WorldMetadata> | null;
+  if (value?.generatorVersion !== 1) return { metadata: validateWorldMetadata(value), migrated: false };
+
+  const metadata = validateWorldMetadata({
+    seed: value.seed === 'verdant-reach' ? DEFAULT_SEED : value.seed,
+    generatorVersion: GENERATOR_VERSION,
+    worldSizeMeters: value.worldSizeMeters,
+    terrain: value.terrain,
+  });
+  if (storage?.getItem(LEGACY_METADATA_KEY) == null) storage?.setItem(LEGACY_METADATA_KEY, stored);
+  return { metadata, migrated: true };
+}
+
 export function saveWorldMetadata(metadata: WorldMetadata, storage?: WorldStorage): void {
   const validated = validateWorldMetadata(metadata);
   storage?.setItem(WORLD_METADATA_KEY, JSON.stringify(validated));
 }
 
 export function terrainStorageKey(metadata: WorldMetadata): string {
-  const { seed, generatorVersion, worldSizeMeters, terrain } = metadata;
+  const { seed, generatorVersion, worldSizeMeters, terrain, layout } = metadata;
   return 'pixel-world:terrain:' + JSON.stringify([
     seed, generatorVersion, worldSizeMeters,
     terrain.seaLevel, terrain.reliefMultiplier, terrain.riverWidthMeters,
+    ...(layout === undefined ? [] : [layout]),
   ]);
 }
