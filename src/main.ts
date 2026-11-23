@@ -146,6 +146,9 @@ function start(ui: ReturnType<typeof createInterface>): void {
     canvas.style.zIndex = '1'
     canvas.classList.add('is-visible')
     shownMode = viewMode
+    viewport.setAttribute('aria-label', viewMode === '2d'
+      ? 'Bản đồ 2D isometric. Dùng phím mũi tên để di chuyển và dấu cộng, dấu trừ để thu phóng.'
+      : 'Bản đồ 3D. Dùng phím mũi tên để di chuyển, Shift và phím mũi tên để xoay, dấu cộng và dấu trừ để thu phóng.')
     eraseTimer = window.setTimeout(() => {
       if (shownMode === '3d' && viewMode === '3d') {
         map2D?.canvas.classList.remove('is-visible')
