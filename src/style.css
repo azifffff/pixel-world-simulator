@@ -444,6 +444,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 .map-viewport {
   position: absolute;
   inset: 0;
+  isolation: isolate;
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -452,32 +453,115 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 .map-viewport:active { cursor: grabbing; }
 .map-viewport:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .map-viewport canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   image-rendering: pixelated;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
 }
 
-.map-notices {
+.map-viewport canvas.is-visible { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .map-viewport canvas { transition: none; }
+}
+
+.map-top {
   position: absolute;
   z-index: 1;
   top: 19px;
   left: 20px;
   display: grid;
-  max-width: min(48ch, calc(100% - 84px));
+  max-width: min(48ch, calc(100% - 80px));
   justify-items: start;
   gap: 7px;
   pointer-events: none;
 }
 
-.map-loading, .map-error, .map-warning {
+.view-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  pointer-events: auto;
+}
+
+.view-selector {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+
+.view-selector .mode-options {
+  grid-template-columns: repeat(2, minmax(46px, 1fr));
+  background: #172528;
+}
+
+.view-selector .mode-options span { padding: 10px 8px; }
+
+.view-selector:disabled { opacity: .55; }
+
+.cliff-focus {
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent);
+  color: #231c10;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cliff-focus:hover { background: #f3d9a6; }
+
+.orbit-tools {
+  display: flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid #56676a;
+  border-radius: 5px;
+  background: #172528;
+  pointer-events: auto;
+}
+
+.orbit-tools span {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.orbit-tools span:nth-of-type(2) {
+  margin-left: 5px;
+  border-left: 1px solid var(--line);
+}
+
+.orbit-tools button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #e6ece8;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.orbit-tools button:hover { background: #2b3b3e; }
+.orbit-tools button:focus-visible { outline-offset: -2px; }
+
+.map-view-status, .map-error, .map-warning {
   margin: 0;
   border: 1px solid #56676a;
   border-radius: 5px;
   background: rgb(17 29 31 / 94%);
 }
 
-.map-loading {
+.map-view-status {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -486,12 +570,17 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
   font-size: 11px;
 }
 
-.loading-dot {
+.map-view-status::before {
+  flex: none;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
+  content: "";
 }
+
+.map-view-status[data-state="ready"]::before { background: #a8d5b1; }
+.map-view-status[data-state="unavailable"]::before { background: #ee9c8e; }
 
 .map-error {
   padding: 12px;
@@ -523,6 +612,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 }
 
 .map-compass {
+  --north-angle: 63deg;
   position: absolute;
   top: 20px;
   right: 20px;
@@ -539,15 +629,16 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 
 .map-compass > :last-child {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(var(--north-angle)) translateY(-17px) rotate(calc(-1 * var(--north-angle)));
   font: 700 9px var(--mono);
 }
 
 .compass-needle {
   width: 9px;
   height: 25px;
-  transform: rotate(63deg);
+  transform: rotate(var(--north-angle));
   background: linear-gradient(var(--accent) 50%, #7b8b87 50%);
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
@@ -779,7 +870,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
   .map-tools .map-home { width: 39px; height: 39px; }
   .map-zoom { min-width: 39px; }
   .map-compass { top: 12px; right: 9px; }
-  .map-notices { top: 12px; left: 9px; }
+  .map-top { top: 12px; left: 9px; }
 }
 
 @media (max-width: 360px) {

@@ -15,9 +15,11 @@
     "build": "npm run typecheck && vite build"
   },
   "dependencies": {
-    "pixi.js": "8.23.0"
+    "pixi.js": "8.23.0",
+    "three": "0.187.0"
   },
   "devDependencies": {
+    "@types/three": "0.187.0",
     "typescript": "7.0.2",
     "vite": "8.3.8"
   }

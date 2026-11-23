@@ -3,7 +3,7 @@ import type { CameraController } from '../world/camera.ts'
 import {
   clippedHexPolygon, HEX_FLAT_WIDTH_METERS, hexesInBounds, type Bounds, type Hex, type Point,
 } from '../world/coordinates.ts'
-import type { TerrainSurface } from '../world/surface.ts'
+import type { TerrainSurface2D } from '../world/surface2d.ts'
 
 const MAX_GRID_HEXES = 650
 
@@ -37,7 +37,7 @@ export class HexOverlay {
   }
 
   render(
-    enabled: boolean, selected: Hex | null, camera: CameraController, surface: TerrainSurface, spacing: number,
+    enabled: boolean, selected: Hex | null, camera: CameraController, surface: TerrainSurface2D, spacing: number,
     gridDirty: boolean,
   ): void {
     const visible = enabled && Number.isFinite(spacing)
@@ -101,5 +101,10 @@ export class HexOverlay {
   destroy(): void {
     this.grid.destroy()
     this.highlight.destroy()
+  }
+
+  clear(): void {
+    this.grid.clear()
+    this.highlight.clear()
   }
 }

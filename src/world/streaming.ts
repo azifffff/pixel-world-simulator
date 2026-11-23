@@ -4,6 +4,7 @@ import { CHUNK_SIZE_METERS, type Bounds, type Point } from './coordinates.ts';
 
 export { BIOMES };
 const BIOME_INDEX = Object.fromEntries(BIOMES.map((biome, index) => [biome, index])) as Record<Biome, number>;
+export const WATER_KINDS = { none: 0, ocean: 1, river: 2, lake: 3 } as const;
 
 export const STREAM_SETTINGS = {
   minSampleSpacing: 5,
@@ -34,6 +35,9 @@ export interface TerrainTile extends DetailLevel {
   readonly moistures: Uint8Array;
   readonly materials: Uint8Array;
   readonly dryMaterials: Uint8Array;
+  /** Class and water level at each face center. Dry faces use NaN for level. */
+  readonly waterKinds?: Uint8Array;
+  readonly waterLevels?: Float32Array;
 }
 
 export interface StreamView {
@@ -63,7 +67,7 @@ export interface StreamFrame {
 }
 
 interface TileRequest {
-  readonly key: string;
+  readonly cacheKey: string;
   readonly bounds: Bounds;
 }
 
@@ -73,11 +77,13 @@ interface TileLayout {
 }
 
 interface TileBuild {
-  readonly tile: TerrainTile;
+  readonly cacheKey: string;
+  readonly tile: TerrainTile & { readonly waterKinds: Uint8Array; readonly waterLevels: Float32Array };
   nextRow: number;
 }
 
-type TerrainTileSource = Pick<TerrainData, 'metadata' | 'revision' | 'sample' | 'elevationAt'>;
+type TerrainTileSource = Pick<TerrainData, 'metadata' | 'revision' | 'sample' | 'elevationAt'> &
+  Partial<Pick<TerrainData, 'changedBoundsSince'>>;
 
 function detailForSpacing(spacing: number): DetailLevel {
   if (spacing >= 40_960) return { lod: 0, spacing };
@@ -108,7 +114,7 @@ function centerDistanceSquared(bounds: Bounds, center: Point): number {
   return dx * dx + dy * dy;
 }
 
-function countPhysicalChunks(tiles: readonly TerrainTile[], lod: LodLevel): number {
+export function countPhysicalChunks(tiles: readonly TerrainTile[], lod: LodLevel): number {
   if (lod < 3) return 0;
 
   let count = 0;
@@ -142,9 +148,8 @@ export class ChunkManager {
 
   update(view: StreamView, budget: StreamBudget = {}): StreamFrame {
     if (this.revision !== this.terrain.revision) {
+      this.invalidateEditedTiles(this.terrain.changedBoundsSince?.(this.revision));
       this.revision = this.terrain.revision;
-      this.cache.clear();
-      this.partialTile = undefined;
     }
 
     const preferred = this.preferredSpacing(view.pixelsPerMeter);
@@ -179,9 +184,9 @@ export class ChunkManager {
       }
     }
 
-    const loading = target.requests.some(({ key }) => !this.cache.has(key));
+    const loading = target.requests.some(({ cacheKey }) => !this.cache.has(cacheKey));
     if (!loading) display = target;
-    else if (preview?.requests.every(({ key }) => this.cache.has(key))) display = preview;
+    else if (preview?.requests.every(({ cacheKey }) => this.cache.has(cacheKey))) display = preview;
     this.displaySpacing = display.detail.spacing;
 
     // Protect the visible layout and pending replacements during LRU eviction.
@@ -202,6 +207,23 @@ export class ChunkManager {
     };
   }
 
+  private invalidateEditedTiles(regions: readonly Bounds[] | undefined): void {
+    if (!regions) {
+      this.cache.clear();
+      this.partialTile = undefined;
+      return;
+    }
+    const overlapsEdit = ({ bounds }: TerrainTile) => regions.some((region) =>
+      bounds.minX <= region.maxX && bounds.maxX >= region.minX &&
+      bounds.minY <= region.maxY && bounds.maxY >= region.minY,
+    );
+    // Bounds are inclusive so a patched vertex on a seam rebuilds both tiles.
+    for (const [key, tile] of this.cache) {
+      if (overlapsEdit(tile)) this.cache.delete(key);
+    }
+    if (this.partialTile && overlapsEdit(this.partialTile.tile)) this.partialTile = undefined;
+  }
+
   private preferredSpacing(pixelsPerMeter: number): number {
     if (!(pixelsPerMeter > 0) || !Number.isFinite(pixelsPerMeter)) return STREAM_SETTINGS.maxSampleSpacing;
     if (this.targetSpacing !== undefined) {
@@ -215,7 +237,7 @@ export class ChunkManager {
     const previous = this.displaySpacing === undefined ? undefined : this.createLayout(this.displaySpacing, view);
     if (previous && previous.detail.spacing === target.detail.spacing && missingCount <= 12) return target;
     if (previous && previous.requests.length > 0) {
-      const ready = previous.requests.filter(({ key }) => this.cache.has(key)).length;
+      const ready = previous.requests.filter(({ cacheKey }) => this.cache.has(cacheKey)).length;
       if (ready > 0 && (ready * 2 >= previous.requests.length || previous.requests.length - ready <= 12)) {
         return previous.detail.spacing === target.detail.spacing ? target : previous;
       }
@@ -269,7 +291,7 @@ export class ChunkManager {
           maxY: Math.min((y + 1) * tileSize, side),
         };
         if (view.intersects && !view.intersects(bounds)) continue;
-        requests.push({ key: `${this.revision}/${spacing}/${x}/${y}`, bounds });
+        requests.push({ cacheKey: `${spacing}/${x}/${y}`, bounds });
         if (requests.length > STREAM_SETTINGS.maxActiveTiles) return undefined;
       }
     }
@@ -278,17 +300,17 @@ export class ChunkManager {
 
   private missingRequests(layout: TileLayout, center: Point): TileRequest[] {
     return layout.requests
-      .filter(({ key }) => !this.cache.has(key))
+      .filter(({ cacheKey }) => !this.cache.has(cacheKey))
       .sort((a, b) => centerDistanceSquared(a.bounds, center) - centerDistanceSquared(b.bounds, center));
   }
 
   private touchTiles(layout: TileLayout): TerrainTile[] {
     const tiles: TerrainTile[] = [];
-    for (const { key } of layout.requests) {
-      const tile = this.cache.get(key);
+    for (const { cacheKey } of layout.requests) {
+      const tile = this.cache.get(cacheKey);
       if (!tile) continue;
-      this.cache.delete(key);
-      this.cache.set(key, tile);
+      this.cache.delete(cacheKey);
+      this.cache.set(cacheKey, tile);
       tiles.push(tile);
     }
     return tiles;
@@ -301,28 +323,32 @@ export class ChunkManager {
     }
   }
 
-  private beginTile(detail: DetailLevel, { key, bounds }: TileRequest): TileBuild {
+  private beginTile(detail: DetailLevel, { cacheKey, bounds }: TileRequest): TileBuild {
     const { spacing } = detail;
     const xs = sampleAxis(bounds.minX, bounds.maxX, spacing);
     const ys = sampleAxis(bounds.minY, bounds.maxY, spacing);
     const cellCount = (xs.length - 1) * (ys.length - 1);
     return {
+      cacheKey,
       tile: {
-        ...detail, key, bounds, xs, ys,
+        ...detail, key: `${this.revision}/${cacheKey}`, bounds, xs, ys,
         elevations: new Float32Array(xs.length * ys.length),
         biomes: new Uint8Array(cellCount),
         surfaceElevations: new Float32Array(cellCount),
         moistures: new Uint8Array(cellCount),
         materials: new Uint8Array(cellCount),
         dryMaterials: new Uint8Array(cellCount),
+        waterKinds: new Uint8Array(cellCount),
+        waterLevels: new Float32Array(cellCount),
       },
       nextRow: 0,
     };
   }
 
   private advanceTile(detail: DetailLevel, request: TileRequest, deadline: number): boolean {
-    const build = this.partialTile?.tile.key === request.key ? this.partialTile : this.beginTile(detail, request);
-    const { xs, ys, spacing, elevations, biomes, surfaceElevations, moistures, materials, dryMaterials } = build.tile;
+    const build = this.partialTile?.cacheKey === request.cacheKey ? this.partialTile : this.beginTile(detail, request);
+    const { xs, ys, spacing, elevations, biomes, surfaceElevations, moistures, materials, dryMaterials,
+      waterKinds, waterLevels } = build.tile;
     const cellWidth = xs.length - 1;
 
     while (build.nextRow < ys.length) {
@@ -341,6 +367,8 @@ export class ChunkManager {
         dryMaterials[index] = sample.dryMaterial ?? materials[index];
         surfaceElevations[index] = sample.elevation;
         moistures[index] = Math.round(Math.max(0, Math.min(1, sample.moisture)) * 255);
+        waterKinds[index] = WATER_KINDS[sample.water] ?? WATER_KINDS.none;
+        waterLevels[index] = sample.waterLevel ?? NaN;
       }
       if (performance.now() >= deadline) {
         this.partialTile = build;
@@ -348,7 +376,7 @@ export class ChunkManager {
       }
     }
 
-    this.cache.set(request.key, build.tile);
+    this.cache.set(request.cacheKey, build.tile);
     this.partialTile = undefined;
     return true;
   }

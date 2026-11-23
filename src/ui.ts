@@ -3,6 +3,7 @@ import { SURFACE_LABELS, TERRAIN_LABELS, WATER_LABELS } from './terrain/aether-c
 import { WORLD_SIDE_METERS } from './world/coordinates.ts';
 
 export type MapLayer = 'colors' | 'shading' | 'hex' | 'chunks' | 'contours' | 'water' | 'classification';
+export type MapViewMode = '2d' | '3d';
 
 export interface MapViewState {
   seed: string;
@@ -23,7 +24,7 @@ export interface MapViewState {
   zoom: number;
   scaleMeters: number;
   scalePixels: number;
-  loading: boolean;
+  northAngle: number;
   worldSizeMeters?: number;
 }
 
@@ -63,7 +64,7 @@ export function createInterface(root: HTMLElement) {
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
         <div>
-          <strong class="brand-title">Aetheria 2.1</strong>
+          <strong class="brand-title">Aetheria 3D</strong>
           <span class="brand-project">Bản đồ địa hình</span>
         </div>
       </div>
@@ -129,14 +130,31 @@ export function createInterface(root: HTMLElement) {
         <div class="panel-help">
           <p><span class="mouse-icon" aria-hidden="true"></span>Kéo để di chuyển</p>
           <p><span class="scroll-icon" aria-hidden="true">↕</span>Cuộn để thu phóng</p>
+          <p><span class="scroll-icon" aria-hidden="true">↻</span>3D: kéo chuột phải để xoay</p>
         </div>
       </aside>
       <section class="map-frame" aria-label="Bản đồ địa hình">
         <div id="map-viewport" class="map-viewport"></div>
-        <div class="map-notices">
-          <p class="map-loading" data-value="loading" role="status">
-            <span class="loading-dot" aria-hidden="true"></span>Đang dựng địa hình
-          </p>
+        <div class="map-top">
+          <div class="view-toolbar">
+            <fieldset class="view-selector" disabled>
+              <legend class="visually-hidden">Góc nhìn</legend>
+              <div class="mode-options">
+                <label><input id="view-2d" type="radio" name="view-mode" aria-label="2D isometric" /><span>2D</span></label>
+                <label><input id="view-3d" type="radio" name="view-mode" checked /><span>3D</span></label>
+              </div>
+            </fieldset>
+            <button data-action="focus-cliff" class="cliff-focus" type="button" hidden>Vách đá 3D</button>
+          </div>
+          <div class="orbit-tools" role="group" aria-label="Điều khiển camera 3D" hidden>
+            <span aria-hidden="true">Xoay</span>
+            <button data-action="orbit-left" type="button" title="Xoay trái" aria-label="Xoay trái">↶</button>
+            <button data-action="orbit-right" type="button" title="Xoay phải" aria-label="Xoay phải">↷</button>
+            <span aria-hidden="true">Nghiêng</span>
+            <button data-action="tilt-up" type="button" title="Nâng góc nhìn" aria-label="Nâng góc nhìn">↑</button>
+            <button data-action="tilt-down" type="button" title="Hạ góc nhìn" aria-label="Hạ góc nhìn">↓</button>
+          </div>
+          <p class="map-view-status" data-state="loading" data-view="3d" role="status">Đang dựng địa hình 3D</p>
           <p class="map-error" data-value="error" role="alert" hidden></p>
           <div class="map-warning" hidden>
             <p data-value="warning" role="status"></p>
@@ -212,6 +230,12 @@ export function createInterface(root: HTMLElement) {
   const seedInput = select<HTMLInputElement>('#world-seed');
   const reliefMode = select<HTMLInputElement>('#mode-relief');
   const classificationMode = select<HTMLInputElement>('#mode-classification');
+  const view2D = select<HTMLInputElement>('#view-2d');
+  const view3D = select<HTMLInputElement>('#view-3d');
+  const viewSelector = select<HTMLFieldSetElement>('.view-selector');
+  const viewStatus = select<HTMLElement>('.map-view-status');
+  const orbitTools = select<HTMLElement>('.orbit-tools');
+  const focusCliff = select<HTMLButtonElement>('[data-action="focus-cliff"]');
   const zoomIn = select<HTMLButtonElement>('[data-action="zoom-in"]');
   const zoomOut = select<HTMLButtonElement>('[data-action="zoom-out"]');
   const home = select<HTMLButtonElement>('[data-action="home"]');
@@ -219,11 +243,11 @@ export function createInterface(root: HTMLElement) {
   const values = new Map(
     [...root.querySelectorAll<HTMLElement>('[data-value]')].map(element => [element.dataset.value, element]),
   );
-  const loading = select<HTMLElement>('[data-value="loading"]');
   const error = select<HTMLElement>('[data-value="error"]');
   const warning = select<HTMLElement>('.map-warning');
   const inspector = select<HTMLDetailsElement>('.map-inspector');
   const scale = select<HTMLElement>('[data-value="scale"]');
+  const compass = select<HTMLElement>('.map-compass');
   let renderedSeed = '';
   let renderedSide = 0;
 
@@ -278,6 +302,35 @@ export function createInterface(root: HTMLElement) {
       zoomIn.addEventListener('click', () => handler(1));
       zoomOut.addEventListener('click', () => handler(-1));
     },
+    onViewModeChange(handler: (mode: MapViewMode) => void): void {
+      viewSelector.disabled = false;
+      view2D.addEventListener('change', () => { if (view2D.checked) handler('2d'); });
+      view3D.addEventListener('change', () => { if (view3D.checked) handler('3d'); });
+    },
+    setViewMode(mode: MapViewMode): void {
+      (mode === '2d' ? view2D : view3D).checked = true;
+    },
+    setViewStatus(mode: MapViewMode, state: 'loading' | 'ready' | 'unavailable'): void {
+      if (viewStatus.dataset.view === mode && viewStatus.dataset.state === state) return;
+      const label = mode === '3d' ? '3D' : '2D';
+      viewStatus.dataset.view = mode;
+      viewStatus.dataset.state = state;
+      viewStatus.textContent = state === 'ready' ? `Địa hình ${label} đã sẵn sàng`
+        : state === 'loading' ? `Đang dựng địa hình ${label}` : `Địa hình ${label} chưa khả dụng`;
+    },
+    showOrbit(visible: boolean): void {
+      orbitTools.hidden = !visible;
+    },
+    onOrbit(handler: (dx: number, dy: number) => void): void {
+      select('[data-action="orbit-left"]').addEventListener('click', () => handler(-87, 0));
+      select('[data-action="orbit-right"]').addEventListener('click', () => handler(87, 0));
+      select('[data-action="tilt-up"]').addEventListener('click', () => handler(0, 35));
+      select('[data-action="tilt-down"]').addEventListener('click', () => handler(0, -35));
+    },
+    onFocusCliff(handler: () => void, available: boolean): void {
+      focusCliff.hidden = !available;
+      focusCliff.addEventListener('click', handler);
+    },
     onHome(handler: () => void): void {
       home.addEventListener('click', handler);
     },
@@ -322,7 +375,7 @@ export function createInterface(root: HTMLElement) {
       setValue('water', labelFor(WATER_LABELS, state.water));
       setValue('inspector-lod', String(state.lod));
       setValue('zoom', `${decimal.format(state.zoom)}×`);
-      loading.hidden = !state.loading || !error.hidden;
+      compass.style.setProperty('--north-angle', `${state.northAngle}deg`);
       scale.hidden = state.scaleMeters <= 0 || state.scalePixels <= 0;
       if (!scale.hidden) {
         const kilometers = state.scaleMeters / 1000;
@@ -334,7 +387,6 @@ export function createInterface(root: HTMLElement) {
     showError(message: string): void {
       error.textContent = message;
       error.hidden = !message;
-      if (message) loading.hidden = true;
     },
     showWarning(message: string): void {
       setValue('warning', message);

@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { CameraController } from '../src/world/camera.ts';
 import { WORLD_SIDE_METERS, pointInWorld, unprojectIsometric } from '../src/world/coordinates.ts';
-import { TerrainSurface } from '../src/world/surface.ts';
+import { TerrainSurface2D } from '../src/world/surface2d.ts';
 
 function settle(camera) {
   for (let frame = 0; frame < 120; frame += 1) {
@@ -77,7 +77,7 @@ test('screen picking resolves the rendered relief in a partial tile at the far c
   const origin = WORLD_SIDE_METERS - 95;
   const axis = new Float64Array([origin, origin + 60, WORLD_SIDE_METERS]);
   const elevations = Float32Array.from([260, 277, 295, 280, 300, 312, 305, 310, 319]);
-  const surface = new TerrainSurface();
+  const surface = new TerrainSurface2D();
   surface.setTiles([{
     bounds: { minX: origin, minY: origin, maxX: WORLD_SIDE_METERS, maxY: WORLD_SIDE_METERS },
     xs: axis,
@@ -106,7 +106,7 @@ test('a rocky rise hides lower intersections along the same isometric ray', () =
   camera.frameRegion([{ x: base, y: base }, { x: base + 160, y: base + 160 }]);
   const axis = Float64Array.from({ length: 9 }, (_, i) => base + i * 20);
   const elevations = Float32Array.from({ length: 81 }, (_, i) => i % 9 < 2 ? 0 : 120);
-  const surface = new TerrainSurface();
+  const surface = new TerrainSurface2D();
   surface.setTiles([{
     bounds: { minX: base, minY: base, maxX: base + 160, maxY: base + 160 },
     xs: axis, ys: axis, spacing: 20, elevations,

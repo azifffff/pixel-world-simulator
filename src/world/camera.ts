@@ -2,6 +2,7 @@ import {
   clamp, MAX_DISPLAY_ELEVATION, projectIsometric, unprojectIsometric, WORLD_SIDE_METERS,
   type Bounds, type Point,
 } from './coordinates.ts'
+import type { WorldPosition } from './coordinates3d.ts'
 
 export interface CameraFrame {
   center: Point
@@ -55,6 +56,13 @@ export class CameraController {
     this.stopZoom()
   }
 
+  setView(anchor: WorldPosition, pixelsPerMeter: number): void {
+    const offset = unprojectIsometric(0, 0, anchor.elevation)
+    this.setCenter(anchor.x - offset.x, anchor.y - offset.y)
+    this.scale = clamp(pixelsPerMeter, this.minimumScale, this.maximumScale())
+    this.stopZoom()
+  }
+
   frameRegion(outline: readonly Point[]): void {
     if (outline.length === 0) return
     const projected = outline.map(({ x, y }) => projectIsometric(x, y))
@@ -75,13 +83,14 @@ export class CameraController {
     this.setCenter(this.center.x - offset.x, this.center.y - offset.y)
   }
 
-  zoomAt(screenX: number, screenY: number, factor: number): void {
+  zoomAt(screenX: number, screenY: number, factor: number, anchor?: WorldPosition): void {
     const target = clamp(this.targetScale * factor, this.minimumScale, this.maximumScale())
     if (!Number.isFinite(target) || target === this.targetScale) return
     this.targetScale = target
+    const offset = anchor ? unprojectIsometric(0, 0, anchor.elevation) : null
     this.zoomAnchor = {
       screen: { x: screenX, y: screenY },
-      world: this.screenToWorld(screenX, screenY),
+      world: anchor && offset ? { x: anchor.x - offset.x, y: anchor.y - offset.y } : this.screenToWorld(screenX, screenY),
     }
   }
 
