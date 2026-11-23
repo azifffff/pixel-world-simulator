@@ -3,6 +3,7 @@ import { SURFACE_LABELS, TERRAIN_LABELS, WATER_LABELS } from './terrain/aether-c
 import { WORLD_SIDE_METERS } from './world/coordinates.ts';
 
 export type MapLayer = 'colors' | 'shading' | 'hex' | 'chunks' | 'contours' | 'water' | 'classification';
+export type MapViewMode = '2d' | '3d';
 
 export interface MapViewState {
   seed: string;
@@ -24,6 +25,7 @@ export interface MapViewState {
   scaleMeters: number;
   scalePixels: number;
   loading: boolean;
+  northAngle: number;
   worldSizeMeters?: number;
 }
 
@@ -63,8 +65,8 @@ export function createInterface(root: HTMLElement) {
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
         <div>
-          <strong class="brand-title">Aetheria 2.1</strong>
-          <span class="brand-project">Bản đồ địa hình</span>
+          <strong class="brand-title">Aetheria 3D</strong>
+          <span class="brand-project">Bản đồ địa hình · Thử nghiệm</span>
         </div>
       </div>
       <dl class="map-metrics">
@@ -103,6 +105,13 @@ export function createInterface(root: HTMLElement) {
         </section>
         <section class="panel-section">
           <fieldset class="view-modes">
+            <legend>Góc nhìn</legend>
+            <div class="mode-options">
+              <label><input id="view-2d" type="radio" name="view-mode" /><span>2D isometric</span></label>
+              <label><input id="view-3d" type="radio" name="view-mode" checked /><span>3D</span></label>
+            </div>
+          </fieldset>
+          <fieldset class="view-modes">
             <legend>Chế độ bản đồ</legend>
             <div class="mode-options">
               <label><input id="mode-relief" type="radio" name="map-mode" checked /><span>Địa hình nổi</span></label>
@@ -129,6 +138,7 @@ export function createInterface(root: HTMLElement) {
         <div class="panel-help">
           <p><span class="mouse-icon" aria-hidden="true"></span>Kéo để di chuyển</p>
           <p><span class="scroll-icon" aria-hidden="true">↕</span>Cuộn để thu phóng</p>
+          <p><span class="scroll-icon" aria-hidden="true">↻</span>3D: kéo chuột phải để xoay</p>
         </div>
       </aside>
       <section class="map-frame" aria-label="Bản đồ địa hình">
@@ -212,6 +222,8 @@ export function createInterface(root: HTMLElement) {
   const seedInput = select<HTMLInputElement>('#world-seed');
   const reliefMode = select<HTMLInputElement>('#mode-relief');
   const classificationMode = select<HTMLInputElement>('#mode-classification');
+  const view2D = select<HTMLInputElement>('#view-2d');
+  const view3D = select<HTMLInputElement>('#view-3d');
   const zoomIn = select<HTMLButtonElement>('[data-action="zoom-in"]');
   const zoomOut = select<HTMLButtonElement>('[data-action="zoom-out"]');
   const home = select<HTMLButtonElement>('[data-action="home"]');
@@ -224,6 +236,7 @@ export function createInterface(root: HTMLElement) {
   const warning = select<HTMLElement>('.map-warning');
   const inspector = select<HTMLDetailsElement>('.map-inspector');
   const scale = select<HTMLElement>('[data-value="scale"]');
+  const compass = select<HTMLElement>('.map-compass');
   let renderedSeed = '';
   let renderedSide = 0;
 
@@ -278,6 +291,13 @@ export function createInterface(root: HTMLElement) {
       zoomIn.addEventListener('click', () => handler(1));
       zoomOut.addEventListener('click', () => handler(-1));
     },
+    onViewModeChange(handler: (mode: MapViewMode) => void): void {
+      view2D.addEventListener('change', () => { if (view2D.checked) handler('2d'); });
+      view3D.addEventListener('change', () => { if (view3D.checked) handler('3d'); });
+    },
+    setViewMode(mode: MapViewMode): void {
+      (mode === '2d' ? view2D : view3D).checked = true;
+    },
     onHome(handler: () => void): void {
       home.addEventListener('click', handler);
     },
@@ -322,6 +342,7 @@ export function createInterface(root: HTMLElement) {
       setValue('water', labelFor(WATER_LABELS, state.water));
       setValue('inspector-lod', String(state.lod));
       setValue('zoom', `${decimal.format(state.zoom)}×`);
+      compass.style.setProperty('--north-angle', `${state.northAngle}deg`);
       loading.hidden = !state.loading || !error.hidden;
       scale.hidden = state.scaleMeters <= 0 || state.scalePixels <= 0;
       if (!scale.hidden) {

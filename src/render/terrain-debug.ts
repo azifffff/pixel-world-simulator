@@ -165,6 +165,11 @@ export class TerrainDebugOverlay {
     this.contours.destroy()
   }
 
+  clear(): void {
+    this.chunks.clear()
+    this.contours.clear()
+  }
+
   private drawContours(graphics: Graphics, camera: CameraController, tiles: readonly TerrainTile[]): void {
     if (tiles.length === 0) return
     let interval = contourInterval(tiles[0].spacing)

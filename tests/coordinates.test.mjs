@@ -10,11 +10,10 @@ import {
   hexNeighbors,
   hexToWorld,
   pointInWorld,
-  projectIsometric,
-  unprojectIsometric,
   worldToChunk,
   worldToHex,
 } from '../src/world/coordinates.ts';
+import { HEIGHT_SCALE, sceneToWorld, worldToScene } from '../src/world/coordinates3d.ts';
 
 function approximately(actual, expected, tolerance) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} differs from ${expected}`);
@@ -102,10 +101,13 @@ test('chunk lookup clips the outermost partial chunk and preserves five-meter pr
   const x = WORLD_SIDE_METERS - 11.125;
   const y = WORLD_SIDE_METERS - 66.875;
   const elevation = 1_234.5;
-  const first = projectIsometric(x, y, elevation);
-  const second = projectIsometric(x + 5, y, elevation);
-  const recovered = unprojectIsometric(first.x, first.y, elevation);
+  const origin = { x: WORLD_SIDE_METERS - 8192, y: WORLD_SIDE_METERS - 8192 };
+  const first = worldToScene(x, y, elevation, origin);
+  const second = worldToScene(x + 5, y, elevation, origin);
+  const recovered = sceneToWorld(first, origin);
   approximately(recovered.x, x, 0.000001);
   approximately(recovered.y, y, 0.000001);
-  assert.ok(Math.hypot(second.x - first.x, second.y - first.y) >= 1);
+  approximately(recovered.elevation, elevation, 0.000001);
+  approximately(first.y, elevation * HEIGHT_SCALE, 0.000001);
+  approximately(second.x - first.x, 5, 0.000001);
 });

@@ -18,6 +18,10 @@ const FLAT_MORPHOLOGY: Morphology = Object.freeze({
   slope: 0, ruggedness: 0, localRelief: 0, curvature: 0,
 });
 
+export function morphologyDistances(worldSize: number): readonly [local: number, regional: number] {
+  return [Math.min(750, worldSize / 64), Math.min(12_000, worldSize / 32)];
+}
+
 export class TerrainGenerator {
   readonly layout: AetherLayout;
   readonly hydrology: AetherHydrology;
@@ -63,8 +67,7 @@ export class TerrainGenerator {
   private morphology(
     x: number, y: number, elevation: number, elevationAt: (x: number, y: number) => number,
   ): Morphology {
-    const spacing = Math.min(750, this.side / 64);
-    const contourSpacing = Math.min(12_000, this.side / 32);
+    const [spacing, contourSpacing] = morphologyDistances(this.side);
     const neighbors = (distance: number) => [
       elevationAt(clamp(x - distance, 0, this.side), y),
       elevationAt(clamp(x + distance, 0, this.side), y),

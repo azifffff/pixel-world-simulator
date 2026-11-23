@@ -452,10 +452,21 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 .map-viewport:active { cursor: grabbing; }
 .map-viewport:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .map-viewport canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   image-rendering: pixelated;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.map-viewport canvas.is-visible { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .map-viewport canvas { transition: none; }
 }
 
 .map-notices {
@@ -523,6 +534,7 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 }
 
 .map-compass {
+  --north-angle: 63deg;
   position: absolute;
   top: 20px;
   right: 20px;
@@ -539,15 +551,16 @@ button:focus-visible, input:focus-visible, summary:focus-visible {
 
 .map-compass > :last-child {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(var(--north-angle)) translateY(-17px) rotate(calc(-1 * var(--north-angle)));
   font: 700 9px var(--mono);
 }
 
 .compass-needle {
   width: 9px;
   height: 25px;
-  transform: rotate(63deg);
+  transform: rotate(var(--north-angle));
   background: linear-gradient(var(--accent) 50%, #7b8b87 50%);
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }

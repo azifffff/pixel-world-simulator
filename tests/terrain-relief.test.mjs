@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  rootedTreeElevation, terrainDepth, terrainFacet, treeRoot, TREE_GRID_METERS,
+  rootedTreeElevation, terrainFacet, treeRoot, TREE_GRID_METERS,
 } from '../src/render/terrain-detail.ts';
-import { MAX_DISPLAY_ELEVATION, WORLD_SIDE_METERS } from '../src/world/coordinates.ts';
+import { WORLD_SIDE_METERS } from '../src/world/coordinates.ts';
 
 test('rock faces follow the measurements of steep native terrain triangles', () => {
   const rise = [120, 121, 122];
@@ -16,12 +16,6 @@ test('rock faces follow the measurements of steep native terrain triangles', () 
   assert.equal(broadlySampled.cliff, false);
   assert.equal(tiny.cliff, false);
   assert.ok(nearVertical.light < gentle.light);
-});
-
-test('depth of a projected pixel gives nearer high faces and crowns priority', () => {
-  assert.ok(terrainDepth(0) < 1);
-  assert.ok(terrainDepth(480) < terrainDepth(460));
-  assert.ok(terrainDepth(MAX_DISPLAY_ELEVATION + 23) > 0);
 });
 
 test('forest placements remain metric and deterministic near the world edge', () => {

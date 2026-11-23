@@ -2,6 +2,7 @@ import { BIOMES, type Biome, type TerrainSample } from './generator.ts';
 import { materialForBiome, materialForTerrain, SURFACE_LABELS, type SurfaceMaterial } from './aether-classification.ts';
 import { MAX_ELEVATION, MIN_ELEVATION, terrainStorageKey,
   type WorldMetadata, type WorldStorage } from './metadata.ts';
+import type { Bounds } from '../world/coordinates.ts';
 
 export interface TerrainPatch {
   readonly id: string;
@@ -16,6 +17,8 @@ export interface TerrainPatch {
 }
 
 const PATCH_SCHEMA_VERSION = 1;
+const EDIT_HISTORY_LIMIT = 32;
+const EDIT_REGION_LIMIT = 64;
 type TerrainLayer = 'authored' | 'patches';
 
 interface TerrainEdits {
@@ -23,6 +26,42 @@ interface TerrainEdits {
   readonly worldKey: string;
   readonly authored: readonly TerrainPatch[];
   readonly patches: readonly TerrainPatch[];
+}
+
+export interface TerrainEditRegion extends Bounds {
+  readonly affectsElevation: boolean;
+}
+
+function samePatch(a: TerrainPatch, b: TerrainPatch): boolean {
+  return a.minX === b.minX && a.minY === b.minY && a.maxX === b.maxX && a.maxY === b.maxY &&
+    a.elevation === b.elevation && a.biome === b.biome && a.surface === b.surface && a.blendMeters === b.blendMeters;
+}
+
+function changedRegions(before: TerrainEdits, after: TerrainEdits, layer: TerrainLayer, editedId: string): TerrainEditRegion[] {
+  const regions: TerrainEditRegion[] = [];
+  const track = ({ minX, minY, maxX, maxY, elevation }: TerrainPatch) => {
+    regions.push({ minX, minY, maxX, maxY, affectsElevation: elevation !== undefined });
+  };
+  for (const name of ['authored', 'patches'] as const) {
+    const previous = new Map(before[name].map((patch, index) => [patch.id, { patch, index }]));
+    let retainedIndex = -1;
+    for (const patch of after[name]) {
+      const saved = previous.get(patch.id);
+      previous.delete(patch.id);
+      if (!saved || !samePatch(saved.patch, patch)) {
+        if (saved) track(saved.patch);
+        track(patch);
+      } else if ((name === layer && patch.id === editedId && saved.index !== before[name].length - 1) ||
+        saved.index < retainedIndex) {
+        // A reordered patch may win where it overlaps another saved patch.
+        track(patch);
+      } else {
+        retainedIndex = saved.index;
+      }
+    }
+    for (const { patch } of previous.values()) track(patch);
+  }
+  return regions;
 }
 
 function inRange(value: unknown, min: number, max: number): value is number {
@@ -74,6 +113,7 @@ export class TerrainPatchManager {
   private readonly worldKey: string;
   private edits: TerrainEdits;
   private changeCount = 0;
+  private readonly changeHistory: (readonly TerrainEditRegion[] | undefined)[] = [];
 
   constructor(metadata: WorldMetadata, storage?: WorldStorage) {
     this.worldSize = metadata.worldSizeMeters;
@@ -86,6 +126,18 @@ export class TerrainPatchManager {
 
   get revision(): number {
     return this.changeCount;
+  }
+
+  changesSince(revision: number): readonly TerrainEditRegion[] | undefined {
+    const first = revision - (this.changeCount - this.changeHistory.length);
+    if (first < 0 || first > this.changeHistory.length) return undefined;
+    const changed: TerrainEditRegion[] = [];
+    for (let i = first; i < this.changeHistory.length; i++) {
+      const regions = this.changeHistory[i];
+      if (!regions || changed.length + regions.length > EDIT_REGION_LIMIT) return undefined;
+      changed.push(...regions);
+    }
+    return changed;
   }
 
   apply(x: number, y: number, source: TerrainSample, elevationAlreadyApplied = false): TerrainSample {
@@ -130,14 +182,14 @@ export class TerrainPatchManager {
     this.write({
       ...current,
       [layer]: [...current[layer].filter((existing) => existing.id !== validated.id), validated],
-    });
+    }, layer, validated.id);
   }
 
   remove(layer: TerrainLayer, id: string): boolean {
     const current = this.read() ?? this.edits;
     const remaining = current[layer].filter((patch) => patch.id !== id);
     if (remaining.length === current[layer].length) return false;
-    this.write({ ...current, [layer]: remaining });
+    this.write({ ...current, [layer]: remaining }, layer, id);
     return true;
   }
 
@@ -163,9 +215,12 @@ export class TerrainPatchManager {
     };
   }
 
-  private write(edits: TerrainEdits): void {
+  private write(edits: TerrainEdits, layer: TerrainLayer, id: string): void {
+    const regions = changedRegions(this.edits, edits, layer, id);
     this.storage?.setItem(this.worldKey, JSON.stringify(edits));
     this.edits = edits;
     this.changeCount++;
+    this.changeHistory.push(regions.length <= EDIT_REGION_LIMIT ? regions : undefined);
+    if (this.changeHistory.length > EDIT_HISTORY_LIMIT) this.changeHistory.shift();
   }
 }

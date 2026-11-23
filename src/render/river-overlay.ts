@@ -1,7 +1,7 @@
 import { Graphics, type Container } from 'pixi.js'
 import type { RiverSegment } from '../terrain/aether-hydrology.ts'
 import type { CameraController } from '../world/camera.ts'
-import type { TerrainSurface } from '../world/surface.ts'
+import type { TerrainSurface2D } from '../world/surface2d.ts'
 
 export const RIVER_LINE_SPACING = 2_560
 
@@ -13,8 +13,16 @@ export class RiverOverlay {
     parent.addChild(this.graphics)
   }
 
+  clear(): void {
+    this.graphics.clear()
+  }
+
+  destroy(): void {
+    this.graphics.destroy()
+  }
+
   render(
-    segments: readonly RiverSegment[], camera: CameraController, surface: TerrainSurface,
+    segments: readonly RiverSegment[], camera: CameraController, surface: TerrainSurface2D,
     spacing: number, colors: boolean,
   ): void {
     const graphics = this.graphics.clear()

@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { TerrainData, createWorldMetadata } from '../src/terrain/index.ts';
 import { CHUNK_SIZE_METERS, WORLD_SIDE_METERS, pointInWorld } from '../src/world/coordinates.ts';
-import { ChunkManager, STREAM_SETTINGS, selectDetail } from '../src/world/streaming.ts';
+import { ChunkManager, STREAM_SETTINGS, WATER_KINDS, selectDetail } from '../src/world/streaming.ts';
 
 function view(x, y, width, height, spacing) {
   return {
@@ -149,6 +149,94 @@ test('a detailed view has complete edge coverage, culls rejected tiles and refre
 
   const unseen = settle(manager, { ...viewport, intersects: () => false });
   assert.equal(unseen.tiles.length, 0);
+});
+
+test('tile face buffers carry water kind and level on the same grid as terrain materials', () => {
+  const terrain = fakeTerrain(320);
+  const sample = terrain.sample.bind(terrain);
+  terrain.sample = (x, y) => {
+    const [water, waterLevel] = x < 10 ? ['ocean', 0]
+      : x < 20 ? ['river', 103.5] : x < 30 ? ['lake', 120] : ['none', null];
+    return { ...sample(x, y), water, waterLevel };
+  };
+  const [tile] = settle(new ChunkManager(terrain), view(0, 0, 40, 20, 10)).tiles;
+  assert.equal(tile.waterKinds.length, tile.materials.length);
+  assert.equal(tile.waterLevels.length, tile.materials.length);
+  assert.deepEqual(Array.from(tile.waterKinds.subarray(0, 4)), [
+    WATER_KINDS.ocean, WATER_KINDS.river, WATER_KINDS.lake, WATER_KINDS.none,
+  ]);
+  assert.deepEqual(Array.from(tile.waterLevels.subarray(0, 4)), [0, 103.5, 120, NaN]);
+});
+
+test('a moved height patch refreshes old and new seam tiles across travel, LOD, and reload', () => {
+  const entries = new Map();
+  const storage = {
+    getItem: (key) => entries.get(key) ?? null,
+    setItem: (key, value) => entries.set(key, value),
+  };
+  const metadata = createWorldMetadata('three-patch-streaming');
+  const terrain = new TerrainData(metadata, storage);
+  const manager = new ChunkManager(terrain);
+  let changes = 0;
+  const unsubscribe = terrain.onChange(() => changes++);
+  const x = 12_800_000;
+  const y = 10_240_080;
+  const shift = 25_600;
+  const near = (patchX, spacing = 10) => view(patchX - 50, y - 40, 100, 80, spacing);
+  const untouched = view(x + 70_000, y + 70_000, 100, 80, 10);
+  const patch = (patchX, elevation) => ({
+    id: 'seam-patch', minX: patchX - 40, minY: y - 40, maxX: patchX + 40, maxY: y + 40, elevation,
+  });
+  const vertex = (tile, px) => {
+    const column = tile.xs.indexOf(px);
+    const row = tile.ys.indexOf(y);
+    assert.ok(column >= 0 && row >= 0);
+    return tile.elevations[row * tile.xs.length + column];
+  };
+
+  const before = settle(manager, near(x)).tiles;
+  assert.equal(before.length, 2);
+  settle(manager, near(x + shift));
+  const retained = settle(manager, untouched).tiles;
+  terrain.setPatch(patch(x, 1_215));
+  const edited = settle(manager, near(x)).tiles;
+  assert.ok(edited.every((tile) => vertex(tile, x) === 1_215 && !before.includes(tile)));
+  assert.equal(vertex(settle(manager, near(x, 80)).tiles[0], x), 1_215);
+
+  terrain.setPatch(patch(x + shift, 1_320));
+  assert.equal(changes, 2);
+  unsubscribe();
+  const afterMove = settle(manager, near(x)).tiles;
+  assert.ok(afterMove.every((tile) => vertex(tile, x) !== 1_215 && !edited.includes(tile)));
+  assert.ok(settle(manager, near(x + shift)).tiles.every((tile) => vertex(tile, x + shift) === 1_320));
+  const afterTravel = settle(manager, untouched).tiles;
+  assert.ok(afterTravel.every((tile, index) => tile === retained[index]));
+
+  const reloaded = new TerrainData(metadata, storage);
+  assert.equal(reloaded.elevationAt(x + shift, y), 1_320);
+  const rebuilt = settle(new ChunkManager(reloaded), near(x + shift, 80)).tiles;
+  assert.equal(vertex(rebuilt[0], x + shift), 1_320);
+  terrain.removePatch('seam-patch');
+  assert.equal(changes, 2);
+});
+
+test('an overlapping patch promoted to last invalidates the layer and off-center morphology samples', () => {
+  const terrain = new TerrainData(createWorldMetadata());
+  const manager = new ChunkManager(terrain);
+  const x = 40_960;
+  const y = 40_960;
+  const shape = { minX: x - 10, minY: y - 10, maxX: x + 10, maxY: y + 10 };
+  const low = { ...shape, id: 'low', elevation: 120 };
+  terrain.setPatch(low);
+  terrain.setPatch({ ...shape, id: 'high', elevation: 420 });
+  const viewport = view(x + 1, y + 1, 20, 20, 10);
+  const offset = view(x + 750, y + 1, 20, 20, 10);
+  const oldOffsetTile = settle(manager, offset).tiles[0];
+  assert.equal(settle(manager, viewport).tiles[0].elevations[0], 420);
+
+  terrain.setPatch(low);
+  assert.equal(settle(manager, viewport).tiles[0].elevations[0], 120);
+  assert.notEqual(settle(manager, offset).tiles[0], oldOffsetTile);
 });
 
 test('returning to a recent view reuses its data, and repeated travel caps the cache', () => {
