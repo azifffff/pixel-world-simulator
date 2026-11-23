@@ -76,6 +76,21 @@ test('neighboring tile meshes use the same shared coastline endpoints', () => {
   }
 });
 
+test('opposing local slopes catch different light without changing the terrain geometry', () => {
+  const material = materialForBiome('plains');
+  const east = tile({ elevation: (x) => 30 - (x - FAR_X), material });
+  const west = tile({ elevation: (x) => 20 + (x - FAR_X), material });
+  const sunlit = buildTerrainGeometry(east, RELIEF);
+  const shaded = buildTerrainGeometry(west, RELIEF);
+  const unlit = buildTerrainGeometry(east, { ...RELIEF, shading: false });
+  try {
+    assert.ok(sunlit.getAttribute('color').getX(0) > shaded.getAttribute('color').getX(0));
+    assert.deepEqual(sunlit.getAttribute('position').array, unlit.getAttribute('position').array);
+  } finally {
+    for (const geometry of [sunlit, shaded, unlit]) geometry.dispose();
+  }
+});
+
 test('forest roots have a stable world grid and stay on the terrain plane across tile partitions', () => {
   const elevation = (x, y) => 190 + (x - FAR_X) * 0.125 - (y - FAR_Y) * 0.25;
   const full = collectTileTrees(tile({ cells: 16, elevation }));

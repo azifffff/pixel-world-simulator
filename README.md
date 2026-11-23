@@ -1,35 +1,33 @@
 # Aetheria 3D
 
-Bản đồ thử nghiệm hiển thị địa hình Aetheria 2.1 bằng Three.js ở chế độ 3D và PixiJS ở chế độ 2D isometric. Thế giới phẳng hữu hạn có diện tích **1.020.200.000 km²**, cạnh khoảng **31.940,57 km**. Bố cục lục địa, thủy hệ và seed mặc định `aetheria` dùng chung bộ sinh của bản 2.1.
+Bản đồ hiển thị địa hình Aetheria 2.1 bằng Three.js ở chế độ 3D và PixiJS ở chế độ 2D isometric. Thế giới phẳng hữu hạn có diện tích **1.020.200.000 km²**, cạnh khoảng **31.940,57 km**. Bố cục lục địa, thủy hệ và seed mặc định `aetheria` dùng chung bộ sinh của bản 2.1.
 
-## Chạy nhánh thử nghiệm
+## Mở bản đồ online
 
-Chọn nhánh `codex/aetheria-three-preview` trên GitHub. Nếu có GitHub Codespaces, chọn **Code → Codespaces** và tạo Codespace từ nhánh này. Trong một bản clone mới của repository, có thể dùng terminal để chuyển nhánh:
+[Chơi Aetheria 3D trên GitHub Pages](https://azifffff.github.io/pixel-world-simulator/). Trang mở bằng trình duyệt có WebGL 2 và đưa camera đến vách đá của cao nguyên phía đông. Mỗi cập nhật trên `main` chạy kiểm thử trước khi workflow **Deploy map to GitHub Pages** phát hành.
 
-```sh
-git fetch origin
-git switch --track origin/codex/aetheria-three-preview
-```
+## Chạy để phát triển
 
-Trong terminal của nhánh thử nghiệm, dùng Node.js 24 và npm 11.
+Dùng Node.js 24 và npm 11.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Mở <http://localhost:5173> bằng trình duyệt có WebGL 2. Trong Codespaces, mở cổng 5173 từ tab **Ports**. Để thử bản build ở đúng đường dẫn của dự án:
+Mở <http://localhost:5173>. Trong Codespaces, mở cổng 5173 từ tab **Ports**. Để thử bản build ở đúng đường dẫn của dự án:
 
 ```sh
 npm run build -- --base=/pixel-world-simulator/
 npm exec vite preview -- --base=/pixel-world-simulator/ --host 0.0.0.0
 ```
 
-Mở <http://localhost:4173/pixel-world-simulator/>. Workflow **Aetheria 3D preview** kiểm thử và đóng gói thư mục `dist/` sau mỗi lần đẩy lên nhánh thử nghiệm. GitHub Pages chính thức tiếp tục phục vụ bản 2.1 từ `main`. [Mở bản 2.1](https://azifffff.github.io/pixel-world-simulator/)
+Mở <http://localhost:4173/pixel-world-simulator/>.
 
 ## Khám phá địa hình
 
-- Trong **Góc nhìn**, chọn **2D isometric** hoặc **3D**. Khi chuyển, bản đồ giữ điểm địa hình ở tâm, tỷ lệ quan sát trong giới hạn của mỗi camera và các lớp đang bật. Góc nhìn trước tiếp tục hiển thị trong lúc góc nhìn mới chuẩn bị.
+- Chọn **2D** hoặc **3D** trên thanh điều khiển của bản đồ. Khi chuyển, bản đồ giữ điểm địa hình ở tâm, tỷ lệ quan sát trong giới hạn của mỗi camera và các lớp đang bật. Góc nhìn trước tiếp tục hiển thị trong lúc góc nhìn mới chuẩn bị.
+- Dùng **Xoay** và **Nghiêng** để quan sát địa hình 3D từ các hướng khác nhau. Nút **Vách đá 3D** đưa camera trở lại vách đá. Trạng thái ngay dưới các nút hiển thị khi góc nhìn đã sẵn sàng.
 - Kéo nút chuột trái để di chuyển, cuộn để zoom quanh con trỏ. Ở chế độ 3D, giữ nút chuột phải hoặc `Shift` khi kéo để xoay và đổi góc nghiêng. Trên màn hình cảm ứng, kéo một ngón để di chuyển và chụm hai ngón để thu phóng. Di chuyển hai ngón cùng lúc ở chế độ 3D điều chỉnh góc nhìn.
 - Các nút thu phóng dùng tâm bản đồ. Chọn **Đến siêu lục địa** để căn khung lục địa chính, hoặc dùng nút ngôi nhà để về toàn cảnh. Khi bản đồ có tiêu điểm, dùng mũi tên để di chuyển, `Shift` và mũi tên để xoay ở chế độ 3D, `+` và `−` để thu phóng, `Home` để về toàn cảnh.
 - **Địa hình nổi** hiển thị cao độ và đổ bóng. **Phân loại địa hình** làm rõ màu nhóm địa hình trên cùng lưới cao độ. Công tắc lớp cho phép điều khiển màu, đổ bóng, nước nội địa, lưới hex, biên chunk và đường đồng mức.
@@ -54,9 +52,9 @@ Mở <http://localhost:4173/pixel-world-simulator/>. Workflow **Aetheria 3D prev
 
 Seed mặc định là `aetheria`. Sửa `DEFAULT_AETHER_CONFIG` để thay đường bờ, vị trí và hình dạng các cấu trúc lớn. Tọa độ chuẩn hóa tăng về phía đông và hướng xuống về phía nam. API cấu hình thế giới chấp nhận một `layout` riêng. Điều chỉnh `seaLevel`, `reliefMultiplier` và `riverWidthMeters` tại `src/terrain/metadata.ts`. Cao độ trả về theo mét so với mực biển.
 
-Bản đồ dùng camera trực giao với hướng nhìn ban đầu gần góc isometric của bản 2.1. Trong Three.js, trục X hướng đông, trục Z hướng nam và trục Y bằng 0,77 lần cao độ để giữ tỷ lệ trực quan. Gốc render dịch theo camera. Cao độ logic, độ dốc thực, phạm vi bản vá và tọa độ kiểm tra vẫn tính theo mét. Bảng thông tin lấy vị trí bằng tia giao với bề mặt địa hình đang vẽ.
+Bản đồ dùng camera trực giao. Góc toàn cảnh gần góc isometric của bản 2.1, còn góc mở đầu nhìn xiên dọc theo vách đá. Trong Three.js, trục X hướng đông, trục Z hướng nam và trục Y bằng 0,77 lần cao độ để giữ tỷ lệ trực quan. Gốc render dịch theo camera. Cao độ logic, độ dốc thực, phạm vi bản vá và tọa độ kiểm tra vẫn tính theo mét. Bảng thông tin lấy vị trí bằng tia giao với bề mặt địa hình đang vẽ.
 
-Sườn dốc và vách đá dùng chung lưới tam giác cao độ. Các mặt đủ dốc và đủ chênh cao có vật liệu đá và đổ bóng theo hướng. Bố cục mặc định có một dải vách ở cao nguyên phía đông. Rừng dùng lưới phân bố 19 m, tán rộng 6–8 m và chiều cao khoảng 16–23 m. Gốc cây lấy cao độ từ tam giác mặt đất. Thân và tán dùng hình học 3D gộp theo vùng.
+Sườn dốc và vách đá dùng chung lưới tam giác cao độ. Ở góc gần, lượng ánh sáng phụ thuộc vào hướng từng mặt tam giác. Các mặt đủ dốc và đủ chênh cao có vật liệu đá. Rừng dùng lưới phân bố 19 m, tán rộng 6–8 m và chiều cao khoảng 16–23 m. Gốc cây lấy cao độ từ tam giác mặt đất. Thân và tán dùng hình học 3D gộp theo vùng.
 
 Bộ tải lấy mẫu theo vùng quan sát 3D và giữ các mảnh gần trong cache LRU. Bước lấy mẫu biến đổi từ hàng chục km ở LOD 0 đến 5–20 m ở LOD 4 tùy ngân sách hiển thị. Cao độ dữ liệu tại một tọa độ là như nhau ở mọi LOD, còn cao độ nội suy trên mesh phụ thuộc bước lấy mẫu. Khi chuyển mức chi tiết, các mảnh tiếp giáp dùng cùng bước lấy mẫu trước khi bề mặt mới thay thế bề mặt đang hiển thị.
 

@@ -98,6 +98,19 @@ test('close orbit keeps an elevated rock face centered', () => {
   assertRenderedProjection(camera, anchor.x, anchor.y, elevation);
 });
 
+test('setting an oblique view frames the same elevated point from the chosen orientation', () => {
+  const camera = new Camera3D();
+  camera.resize(1_280, 800);
+  const anchor = { x: 12_696_300, y: 16_609_070, elevation: 2_045 };
+  const pivot = { x: 640, y: 400 };
+  camera.setView(anchor, 1.5, { bearing: Math.PI / 2, pitch: Math.PI / 5 });
+  assert.equal(camera.bearing, Math.PI / 2);
+  assert.equal(camera.pitch, Math.PI / 5);
+  assert.equal(camera.frame.pixelsPerMeter, 1.5);
+  assertPixel(camera.worldToScreen(anchor.x, anchor.y, anchor.elevation), pivot);
+  assertRenderedProjection(camera, anchor.x, anchor.y, anchor.elevation);
+});
+
 test('floating origin keeps rays accurate at close zoom near the far world edge', () => {
   const camera = new Camera3D();
   camera.resize(1_200, 800);

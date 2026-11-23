@@ -48,6 +48,14 @@ function litColor(color: number, light: number): [number, number, number] {
   ];
 }
 
+function localSunlight(xGrade: number, zGrade: number): number {
+  // A face with Y = xGrade * X + zGrade * Z has an upward normal (-xGrade, 1, -zGrade).
+  const nx = -xGrade * HEIGHT_SCALE;
+  const nz = -zGrade * HEIGHT_SCALE;
+  const sun = (nx * 0.56 + 0.74 - nz * 0.37) / Math.hypot(nx, 1, nz);
+  return 0.55 + 0.61 * Math.max(0, sun);
+}
+
 function bathymetry(elevation: number): number {
   const depth = Math.round(clamp(-elevation, 0, 7_000) * 95 / 7_000) * 7_000 / 95;
   for (let i = 1; i < DEPTH_RAMP.length; i++) {
@@ -139,7 +147,8 @@ export function buildTerrainGeometry(tile: TerrainTile, options: TerrainRenderOp
       const rock = options.colors && !options.classification && relief.cliff;
       const neutral = MATERIALS[NEUTRAL_LAND_MATERIAL];
       const base = options.colors ? rock ? ROCK : isWaterMaterial(material) ? COAST : MATERIALS[material] : neutral;
-      const color = litColor(base, 1 + strength * (relief.light - 1) + grain);
+      const light = tile.lod >= 3 ? localSunlight(xGrade, zGrade) : relief.light;
+      const color = litColor(base, 1 + strength * (light - 1) + grain);
       triangulate(low >= 0 ? facet : clipSea(facet, true), color, true);
     }
     if (low < 0 || high <= 0) {

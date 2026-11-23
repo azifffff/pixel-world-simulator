@@ -16,6 +16,11 @@ export interface CameraAnchor extends Point {
   elevation: number
 }
 
+interface CameraOrientation {
+  bearing: number
+  pitch: number
+}
+
 const DEFAULT_BEARING = Math.PI / 4
 const DEFAULT_PITCH = Math.PI / 6
 const MIN_PITCH = 22 * Math.PI / 180
@@ -90,7 +95,8 @@ export class Camera3D {
     this.updateCamera()
   }
 
-  setView(anchor: CameraAnchor, pixelsPerMeter: number): void {
+  setView(anchor: CameraAnchor, pixelsPerMeter: number, orientation?: CameraOrientation): void {
+    if (orientation) this.setOrientation(orientation.bearing, orientation.pitch)
     this.scale = clamp(pixelsPerMeter, this.minimumScale, this.maximumScale())
     this.anchorAt({ x: this.width / 2, y: this.height / 2 }, anchor)
     this.stopZoom()
@@ -135,11 +141,8 @@ export class Camera3D {
   orbitBy(deltaScreenX: number, deltaScreenY: number, anchor?: CameraAnchor): void {
     const pivot = anchor ? this.worldToScreen(anchor.x, anchor.y, anchor.elevation) : undefined
     const atOverview = this.scale === this.minimumScale
-    this.yaw += deltaScreenX * ORBIT_RADIANS_PER_PIXEL
-    this.yaw = Math.atan2(Math.sin(this.yaw), Math.cos(this.yaw))
-    this.tilt = clamp(this.tilt + deltaScreenY * ORBIT_RADIANS_PER_PIXEL, MIN_PITCH, MAX_PITCH)
-    this.setBasis()
-    this.updateMinimumScale()
+    this.setOrientation(this.yaw + deltaScreenX * ORBIT_RADIANS_PER_PIXEL,
+      this.tilt + deltaScreenY * ORBIT_RADIANS_PER_PIXEL)
     this.scale = atOverview ? this.minimumScale : clamp(this.scale, this.minimumScale, this.maximumScale())
     if (anchor && pivot) this.anchorAt(pivot, anchor)
     this.stopZoom()
@@ -220,8 +223,12 @@ export class Camera3D {
   }
 
   private restoreOrientation(): void {
-    this.yaw = DEFAULT_BEARING
-    this.tilt = DEFAULT_PITCH
+    this.setOrientation(DEFAULT_BEARING, DEFAULT_PITCH)
+  }
+
+  private setOrientation(bearing: number, pitch: number): void {
+    this.yaw = Math.atan2(Math.sin(bearing), Math.cos(bearing))
+    this.tilt = clamp(pitch, MIN_PITCH, MAX_PITCH)
     this.setBasis()
     this.updateMinimumScale()
   }

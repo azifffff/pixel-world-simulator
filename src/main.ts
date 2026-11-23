@@ -9,7 +9,7 @@ import {
 import { createInterface, type MapLayer, type MapViewMode } from './ui.ts'
 import { Camera3D } from './world/camera3d.ts'
 import { sceneToWorld, type RenderOrigin, type WorldPosition } from './world/coordinates3d.ts'
-import { clamp, worldToChunk, worldToHex, type Point } from './world/coordinates.ts'
+import { clamp, MAX_DISPLAY_ELEVATION, worldToChunk, worldToHex, type Point } from './world/coordinates.ts'
 import { countPhysicalChunks, type StreamFrame, type TerrainTile } from './world/streaming.ts'
 import { TerrainSurface } from './world/surface.ts'
 import { WorldManager } from './world/world.ts'
@@ -69,7 +69,9 @@ function start(ui: ReturnType<typeof createInterface>): void {
   let map2D: Map2D | undefined
   let map2DLoading: Promise<Map2D> | undefined
   let viewMode: MapViewMode = '3d'
+  let requestedMode: MapViewMode = '3d'
   let shownMode: MapViewMode = '3d'
+  let webglLost = false
   let switchVersion = 0
   let eraseTimer: number | undefined
 
@@ -160,9 +162,47 @@ function start(ui: ReturnType<typeof createInterface>): void {
     }, 170)
   }
 
-  async function changeView(mode: MapViewMode): Promise<void> {
+  function configuredCliff() {
+    return (world.terrain.metadata.layout ?? DEFAULT_AETHER_CONFIG).escarpments?.[0]
+  }
+
+  function focusCliffView(): void {
+    const cliff = configuredCliff()
+    if (!cliff) return
+
+    const setback = cliff.wallMeters + 8
+    const x = clamp(cliff.center[0] * camera.worldSize - Math.cos(cliff.direction) * setback, 0, camera.worldSize)
+    const y = clamp(cliff.center[1] * camera.worldSize - Math.sin(cliff.direction) * setback, 0, camera.worldSize)
+    const elevation = clamp(world.terrain.elevationAt(x, y), 0, MAX_DISPLAY_ELEVATION)
+    const { width, height } = camera.frame
+    camera.setView({ x, y, elevation }, Math.min(width / 580, height / 400), {
+      bearing: Math.PI / 2 - cliff.direction + Math.PI / 6,
+      pitch: 28 * Math.PI / 180,
+    })
+    pointer = null
+    ui.setViewStatus('3d', 'loading')
+    invalidateMap()
+  }
+
+  async function changeView(mode: MapViewMode, focusCliff = false): Promise<void> {
     const version = ++switchVersion
-    if (mode === viewMode) return
+    if (mode === '3d' && webglLost) {
+      requestedMode = viewMode
+      ui.setViewMode(viewMode)
+      ui.showWarning('Kết nối đồ họa 3D đã mất. Bạn có thể thử chế độ 2D hoặc tải lại trang.')
+      invalidateMap()
+      return
+    }
+    requestedMode = mode
+    ui.setViewMode(mode)
+    if (mode === viewMode) {
+      if (focusCliff) focusCliffView()
+      else invalidateMap()
+      return
+    }
+
+    ui.showOrbit(false)
+    ui.setViewStatus(mode, 'loading')
     try {
       if (mode === '2d' && !map2D) {
         map2DLoading ??= import('./render/map2d.ts').then(({ Map2D }) => Map2D.create(camera.worldSize))
@@ -182,30 +222,41 @@ function start(ui: ReturnType<typeof createInterface>): void {
       if (!target) return
       viewMode = mode
       resize()
-      target.setView(anchor, original.pixelsPerMeter)
       displayedTiles = []
       patchView = undefined
       pointer = null
       drag = null
       touches.clear()
       overlayDirty = true
-      invalidateMap()
+      if (focusCliff) focusCliffView()
+      else {
+        target.setView(anchor, original.pixelsPerMeter)
+        invalidateMap()
+      }
     } catch (error) {
       map2DLoading = undefined
       if (version !== switchVersion) return
       console.error('Cannot switch map view', error)
+      requestedMode = viewMode
       ui.setViewMode(viewMode)
-      ui.showWarning('Không thể mở góc nhìn này trên trình duyệt hiện tại.')
+      ui.showWarning(`Không thể mở góc nhìn ${mode.toUpperCase()} trên trình duyệt hiện tại.`)
+      invalidateMap()
     }
   }
 
   function draw(now: number): void {
     request = null
+    if (viewMode === '3d' && webglLost) {
+      if (requestedMode === '3d') ui.setViewStatus('3d', 'unavailable')
+      ui.showOrbit(false)
+      return
+    }
     const active = activeCamera()
     const cameraMoved = active.step(clamp(now - lastTime, 8, 50))
     lastTime = now
     const view = active.frame
-    const updateMap = mapDirty || cameraMoved || !frame || frame.loading
+    const viewChanged = mapDirty || cameraMoved
+    const updateMap = viewChanged || !frame || frame.loading
     const legacy = viewMode === '2d' ? map2D : undefined
 
     if (updateMap || !frame) {
@@ -225,19 +276,24 @@ function start(ui: ReturnType<typeof createInterface>): void {
     const tiles = holdPatch ? displayedTiles : frame.tiles
     const pending = holdPatch ? frame.tiles : frame.pendingTiles
     const rebuildView = updateMap || (!legacy && (renderer.isPreparing || waterPreparing)) || overlayDirty
+    let redrawThree = viewChanged || overlayDirty || waterPreparing
 
     if (rebuildView) {
       if (legacy) {
         displayedTiles = tiles
         legacy.setTiles(tiles)
       } else {
+        const previousTiles = displayedTiles
         displayedTiles = renderer.render(tiles, camera.frame.origin, pending)
         displayedOrigin = camera.frame.origin
-        surface.setTiles(displayedTiles)
-        waterPreparing = water.render(
-          displayedTiles, displayedOrigin, layers.water && displayedTiles.length ? world.terrain.riverSegments : [],
-          view.pixelsPerMeter, layers,
-        )
+        redrawThree ||= displayedTiles !== previousTiles
+        if (redrawThree) {
+          surface.setTiles(displayedTiles)
+          waterPreparing = water.render(
+            displayedTiles, displayedOrigin, layers.water && displayedTiles.length ? world.terrain.riverSegments : [],
+            view.pixelsPerMeter, layers,
+          )
+        }
       }
     }
 
@@ -251,7 +307,7 @@ function start(ui: ReturnType<typeof createInterface>): void {
       if (legacy) {
         const rivers = rebuildView && layers.water && displayedTiles.length ? world.terrain.riverSegments : []
         legacy.draw(displayedTiles, pending, layers, rivers, hex, rebuildView)
-      } else {
+      } else if (redrawThree || layers.hex) {
         overlays.render(layers, hex, camera, displayedTiles)
         webgl.render(scene, camera.camera)
       }
@@ -261,7 +317,12 @@ function start(ui: ReturnType<typeof createInterface>): void {
     const north = active.worldToScreen(view.center.x, view.center.y - 1_000)
     const northAngle = Math.atan2(north.x - view.width / 2, view.height / 2 - north.y) * 180 / Math.PI
     const loading = frame.loading || (!legacy && (renderer.isPreparing || waterPreparing))
-    if (!loading && displayedTiles.length) revealView()
+    const ready = !loading && displayedTiles.length > 0
+    if (ready) revealView()
+    if (requestedMode === viewMode) {
+      ui.setViewStatus(viewMode, ready ? 'ready' : 'loading')
+      ui.showOrbit(viewMode === '3d' && shownMode === '3d' && displayedTiles.length > 0)
+    }
     ui.update({
       seed: world.terrain.metadata.seed,
       worldSizeMeters: active.worldSize,
@@ -282,7 +343,6 @@ function start(ui: ReturnType<typeof createInterface>): void {
       ruggedness: sample.ruggedness,
       water: sample.water,
       zoom: active.zoom,
-      loading,
       northAngle,
       ...scaleBar(view.pixelsPerMeter),
     })
@@ -410,7 +470,20 @@ function start(ui: ReturnType<typeof createInterface>): void {
     pointer = null
     schedule()
   })
-  webgl.domElement.addEventListener('webglcontextrestored', invalidateMap)
+  webgl.domElement.addEventListener('webglcontextlost', (event) => {
+    event.preventDefault()
+    webglLost = true
+    if (requestedMode === '3d') {
+      ui.setViewStatus('3d', 'unavailable')
+      ui.showWarning('Kết nối đồ họa 3D đã mất. Bạn có thể thử chế độ 2D hoặc tải lại trang.')
+    }
+    invalidateMap()
+  })
+  webgl.domElement.addEventListener('webglcontextrestored', () => {
+    webglLost = false
+    ui.showWarning('')
+    invalidateMap()
+  })
 
   function zoomFromCenter(direction: number): void {
     const { width, height } = activeCamera().frame
@@ -451,6 +524,13 @@ function start(ui: ReturnType<typeof createInterface>): void {
   let stopTerrainSubscription = world.terrain.onChange(terrainChanged)
   ui.onZoom(zoomFromCenter)
   ui.onViewModeChange((mode) => void changeView(mode))
+  ui.onFocusCliff(() => void changeView('3d', true), configuredCliff() !== undefined)
+  ui.onOrbit((dx, dy) => {
+    if (viewMode !== '3d' || shownMode !== '3d' || webglLost) return
+    camera.orbitBy(dx, dy, centerAnchor())
+    pointer = null
+    invalidateMap()
+  })
   ui.onHome(resetView)
   ui.onFocusContinent(() => {
     const metadata = world.terrain.metadata
@@ -490,6 +570,7 @@ function start(ui: ReturnType<typeof createInterface>): void {
       ui.showError('Không thể mở thế giới theo seed này. Hãy kiểm tra dữ liệu lưu trong trình duyệt.')
     }
   })
+  focusCliffView()
 }
 
 const root = document.querySelector<HTMLElement>('#app')
@@ -499,5 +580,6 @@ try {
   start(ui)
 } catch (error) {
   console.error('Cannot initialize the world map', error)
-  ui.showError('Không thể khởi động bản đồ. Hãy mở bằng trình duyệt có hỗ trợ WebGL 2.')
+  ui.setViewStatus('3d', 'unavailable')
+  ui.showError('Không thể khởi động bản đồ 3D. Hãy mở bằng trình duyệt có hỗ trợ WebGL 2.')
 }
