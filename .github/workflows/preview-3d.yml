@@ -1,0 +1,32 @@
+name: Aetheria 3D preview
+
+on:
+  push:
+    branches: [codex/aetheria-three-preview]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aetheria-3d-preview
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npx vite build --base=/pixel-world-simulator/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aetheria-3d-preview
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
